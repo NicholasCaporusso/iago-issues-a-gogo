@@ -1,0 +1,23 @@
+{
+  "name": "tools-github-issues-resolver",
+  "version": "1.0.0",
+  "description": "CLI to read a git remote and fetch open GitHub issues.",
+  "type": "module",
+  "bin": {
+    "github-issues-resolver": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node ./src/index.js",
+    "test": "node ./test/index.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "github",
+    "issues",
+    "git",
+    "cli"
+  ],
+  "license": "MIT"
+}
