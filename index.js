@@ -41,7 +41,7 @@ async function main() {
         renderSingleIssue(issue, options);
         return;
       }
-      case "start-issue": {
+      case "report": {
         const branchName = await startIssueBranch({
           issueNumber: options.issueNumber,
           repoRoot,
@@ -50,7 +50,7 @@ async function main() {
         console.log(branchName);
         return;
       }
-      case "mark-done": {
+      case "completed": {
         const result = await commitIssueFix({
           repoRoot,
           files: options.files,
@@ -67,6 +67,9 @@ async function main() {
         console.log(result.commitMessage);
         if (result.pushed) {
           console.log(`Pushed to ${result.remote}${result.branch ? ` (${result.branch})` : ""}`);
+        }
+        if (result.closeIssueError) {
+          console.error(`Warning: ${result.closeIssueError.message}`);
         }
         return;
       }
@@ -646,7 +649,7 @@ async function startIssueBranch({
   runner = runGitCommand
 }) {
   if (issueNumber === null) {
-    throw new Error("The start-issue command requires --issue <number>.");
+    throw new Error("The report command requires --issue <number>.");
   }
 
   const branchName = makeIssueBranchName(issueNumber);
@@ -703,15 +706,23 @@ async function commitIssueFix({
     await runner(pushArgs, repoRoot);
   }
 
-  const closedIssue = await issueCloser(repoRoot, {
-    issueNumber,
-    lookupPath,
-    remote,
-    token
-  });
+  let closedIssue = null;
+  let closeIssueError = null;
+
+  try {
+    closedIssue = await issueCloser(repoRoot, {
+      issueNumber,
+      lookupPath,
+      remote,
+      token
+    });
+  } catch (error) {
+    closeIssueError = error;
+  }
 
   return {
     branch,
+    closeIssueError,
     closedIssue,
     commitMessage,
     files: Array.isArray(files) ? [...files] : [],
@@ -1168,8 +1179,8 @@ Commands:
   sync                Download open issues and save backlog/issues.json.
   list                Read and print issues from backlog/issues.json.
   show                Print one issue from backlog/issues.json.
-  start-issue         Create or switch to the branch for an issue.
-  mark-done           Stage files, commit progress for an issue, and optionally push.
+  report         Create or switch to the branch for an issue.
+  completed           Stage files, commit progress for an issue, and optionally push.
   create-issue        Create a new issue on the remote repository.
 
   Options:
@@ -1177,13 +1188,13 @@ Commands:
     --remote <name>    Git remote to inspect. Defaults to "origin".
     --token <token>    GitHub token. Falls back to GITHUB_TOKEN or GH_TOKEN.
     --all              Include improvement and feature issues in list output.
-    --issue <number>   Issue number for show, start-issue, or mark-done.
-    --title <text>     Issue title for create-issue or commit title for mark-done.
-    --description <t>  Issue description for create-issue or commit description/text for mark-done.
+    --issue <number>   Issue number for show, report, or completed.
+    --title <text>     Issue title for create-issue or commit title for completed.
+    --description <t>  Issue description for create-issue or commit description/text for completed.
       --label <name>     Issue label for create-issue. One of: bug, improvement, feature.
-    --files <paths>    Files to stage for mark-done.
-  --push             Push after mark-done.
-  --branch <name>    Push target branch for mark-done.
+    --files <paths>    Files to stage for completed.
+  --push             Push after completed.
+  --branch <name>    Push target branch for completed.
   --json             Print the full result as JSON.
   --output <path>    Save the full result as JSON to a file.
   --help, -h         Show this help message.
