@@ -1,118 +1,172 @@
 # GitHub Issues Resolver
 
-Small Node.js CLI that:
+`tools-github-issues-resolver` is a Node.js CLI for syncing GitHub issues into a local backlog, reviewing them from the terminal, and recording issue completion back to the remote repository.
 
-- finds the nearest `.git` repository
-- reads a remote URL from `.git/config`
-- extracts the GitHub owner/repo from that remote
-- calls the GitHub API and fetches all open issues
-- includes each issue description body
-- downloads issue-linked images into `backlog/images/<issueID>/`
-- rewrites image references in the description to those local relative paths
-- requires a token from `--token`, `GITHUB_TOKEN`, or `GH_TOKEN` for remote GitHub actions
-- exposes a helper to stage files, commit an issue fix, and optionally push
+The tool is designed to run inside a Git repository. It discovers the repository root, reads the configured Git remote, talks to the GitHub Issues API, and stores a local cache in `backlog/issues.json`.
+
+## Features
+
+- Sync open GitHub issues into a local backlog file
+- List cached issues from the backlog
+- Show the full details for a single issue
+- Create or switch to an issue branch
+- Commit work for an issue and close the matching remote issue
+- Create new GitHub issues from the CLI
+- Download remote issue images into `backlog/images/<issue-number>/` and rewrite issue bodies to point to the local files
 
 ## Requirements
 
 - Node.js 18 or newer
+- A Git repository with a configured GitHub remote
+- A GitHub token supplied with `--token`, `GITHUB_TOKEN`, `GH_TOKEN`, or `lookup.tsv`
 
-## Usage
+## Installation
 
-```bash
-npm start
-```
-
-Before using commands that talk to GitHub, set a token:
+Install dependencies if you add any later, then run the CLI directly with Node:
 
 ```bash
-export GITHUB_TOKEN=YOUR_TOKEN
+node ./index.js --help
 ```
 
-PowerShell:
-
-```powershell
-$env:GITHUB_TOKEN="YOUR_TOKEN"
-```
-
-If a token is not provided directly, the app also checks `lookup.tsv` for a matching repository URL and uses the associated token.
-
-With options:
+The package metadata also defines a bin name:
 
 ```bash
-node ./src/index.js sync
-node ./src/index.js list
-node ./src/index.js list --all
-node ./src/index.js show --issue 123
-node ./src/index.js create-issue --title "Add retry logic" --description "Found while investigating #123" --label improvement
-node ./src/index.js start-issue --issue 123
-node ./src/index.js commit-fix --issue 123 --description "Implement fix" --files src/index.js README.md
-node ./src/index.js commit-fix --issue 123 --title "Implement fix" --description "Add parser fallback and tests" --files src/index.js README.md
-node ./src/index.js commit-fix --issue 123 --description "Checkpoint current work"
+github-issues-resolver --help
 ```
 
-Agent instructions are available in [AGENT.md](C:\workspace\tools-github-issues-resolver\AGENT.md).
+## Authentication
 
-## Commands
+Commands that talk to GitHub require a token. The CLI checks for credentials in this order:
 
-- `sync`: fetches open issues and writes `backlog/issues.json`
-- `list`: reads and prints open issues from `backlog/issues.json`
-- `show --issue <id>`: prints one issue
-- `create-issue --title "..." [--description "..."] [--label bug|improvement|feature]`: creates a new issue in the remote repository
-- `start-issue --issue <id>`: creates or switches to `issue/<id>`
-- `commit-fix --issue <id> --description "..." --files ... [--push]`: stages files, commits, closes the issue, and optionally pushes
-- `commit-fix --issue <id> --title "..." [--description "..."] [--files ...] [--push]`: stages files, creates a title/description commit, closes the issue, and optionally pushes
-
-If `commit-fix` is run without `--files`, it stages all current changes with `git add .`.
-
-By default, `list` excludes open issues labeled `improvement` or `feature`. Use `--all` to include them.
-
-`sync` and `create-issue` require a GitHub token. Resolution order is:
-
-1. `--token`
+1. `--token <token>`
 2. `GITHUB_TOKEN`
 3. `GH_TOKEN`
 4. `lookup.tsv`
 
-`lookup.tsv` format:
+`lookup.tsv` should contain one repository per line in tab-separated format:
 
 ```tsv
-https://github.com/owner/repo.git<TAB>ghp_xxx
-git@github.com:owner/other-repo.git<TAB>ghp_yyy
+https://github.com/owner/repo.git    ghp_exampleToken
 ```
 
-## Output
+## Backlog Layout
 
-By default the CLI prints a readable issue summary. Use `--json` to print machine-readable output or `--output <path>` to save synced issue JSON to a file.
+After a successful sync, the CLI writes:
 
-When an issue description contains Markdown images or HTML `<img>` tags, the image files are downloaded under `backlog/images/<issueID>/` and the description text is rewritten to use the local relative path instead.
+- `backlog/issues.json`: cached issue metadata and descriptions
+- `backlog/images/<issue-number>/`: downloaded images referenced by issue descriptions
 
-## Git Helper
+If an issue body contains Markdown or HTML image tags that point to remote URLs, those files are downloaded locally and the issue description stored in the backlog is rewritten to use the local relative paths.
 
-The module also exports `commitIssueFix(...)` for local git automation. It:
+## Usage
 
-- stages the files you pass in
-- creates a commit message in the format `fix(issue): close #<issueNumber> - <description>`
-- optionally pushes `HEAD` to the selected remote or branch
-
-Example:
-
-```js
-import { commitIssueFix } from "./src/index.js";
-
-await commitIssueFix({
-  repoRoot: process.cwd(),
-  files: ["src/index.js", "README.md"],
-  issueNumber: 42,
-  description: "Handle issue image downloads",
-  push: true,
-  remote: "origin",
-  branch: "main"
-});
+```bash
+node ./index.js [command] [options]
 ```
 
-## Supported remote formats
+## Commands
 
-- `git@github.com:owner/repo.git`
-- `ssh://git@github.com/owner/repo.git`
-- `https://github.com/owner/repo.git`
-- GitHub Enterprise HTTPS or SSH remotes
+### `sync`
+
+Downloads open issues from the configured GitHub remote and saves them to `backlog/issues.json`.
+
+```bash
+node ./index.js sync
+node ./index.js sync --remote upstream
+node ./index.js sync --output tmp/issues.json --json
+```
+
+### `list`
+
+Reads the backlog and prints the active issue list. By default, only open issues with no labels or the `bug` label are shown. Use `--all` to include `improvement` and `feature` issues too.
+
+```bash
+node ./index.js list
+node ./index.js list --all
+```
+
+### `show`
+
+Prints the full details for a single issue from `backlog/issues.json`.
+
+```bash
+node ./index.js show --issue 12
+node ./index.js show --issue 12 --json
+```
+
+### `start-issue`
+
+Creates or switches to the Git branch for an issue. Branches use the format `issue/<number>`.
+
+```bash
+node ./index.js start-issue --issue 12
+```
+
+### `mark-done`
+
+Stages changes, creates a Git commit, and closes the remote issue.
+
+If `--files` is omitted, the command stages all changes with `git add .`.
+
+```bash
+node ./index.js mark-done --issue 12 --title "Add README" --description "Document setup and command usage"
+node ./index.js mark-done --issue 12 --description "Fix parser edge case" --files index.js README.md
+node ./index.js mark-done --issue 12 --title "Fix issue 12" --description "Patch and tests" --push --branch issue/12
+```
+
+When both `--title` and `--description` are present, the commit message uses the title as the subject and the description as the body:
+
+```text
+fix(issue): close #12 - Add README
+
+Document setup and command usage
+```
+
+### `create-issue`
+
+Creates a new GitHub issue on the configured remote repository.
+
+```bash
+node ./index.js create-issue --title "Add tests" --description "Cover sync and list flows"
+node ./index.js create-issue --title "Improve docs" --description "Document token lookup" --label improvement
+```
+
+Supported labels are:
+
+- `bug`
+- `improvement`
+- `feature`
+
+## Options
+
+- `--cwd <path>`: Start searching for the Git repository from this directory
+- `--remote <name>`: Use a different Git remote instead of `origin`
+- `--token <token>`: Provide a GitHub token directly
+- `--all`: Include `improvement` and `feature` issues in `list` output
+- `--issue <number>`: Issue number for `show`, `start-issue`, or `mark-done`
+- `--title <text>`: Title for `create-issue`, or the commit subject for `mark-done`
+- `--description <text>`: Description for `create-issue`, or commit text for `mark-done`
+- `--label <name>`: Issue label for `create-issue`; supported values are `bug`, `improvement`, and `feature`
+- `--files <paths>`: Explicit file list to stage during `mark-done`
+- `--push`: Push after `mark-done`
+- `--branch <name>`: Push target branch for `mark-done`
+- `--json`: Print JSON output
+- `--output <path>`: Save JSON output to a file
+- `--help`, `-h`: Show the help text
+
+## Typical Workflow
+
+```bash
+node ./index.js sync
+node ./index.js list
+node ./index.js show --issue 12
+node ./index.js start-issue --issue 12
+# edit files
+node ./index.js mark-done --issue 12 --title "Fix issue 12" --description "Explain the change here"
+```
+
+## Notes
+
+- The CLI looks for `.git` in the current directory and its parents, so it can be run from subdirectories inside a repository.
+- For GitHub Enterprise remotes, API requests are sent to `https://<host>/api/v3`.
+- `show` and `list` use the local backlog cache. Run `sync` first if you want the latest remote state.

@@ -8,7 +8,14 @@ import { fileURLToPath } from "node:url";
 
 async function main() {
   try {
-    const options = parseArgs(process.argv.slice(2));
+    const argv = process.argv.slice(2);
+
+    if (argv.length === 0) {
+      printHelp();
+      return;
+    }
+
+    const options = parseArgs(argv);
 
     if (options.help) {
       printHelp();
@@ -43,7 +50,7 @@ async function main() {
         console.log(branchName);
         return;
       }
-      case "commit-fix": {
+      case "mark-done": {
         const result = await commitIssueFix({
           repoRoot,
           files: options.files,
@@ -177,10 +184,10 @@ function parseIssueNumber(value) {
 
 function parseIssueLabel(value) {
   const normalized = String(value).trim().toLowerCase();
-  const allowed = new Set(["bug", "enhancement"]);
+  const allowed = new Set(["bug", "improvement", "feature"]);
 
   if (!allowed.has(normalized)) {
-    throw new Error(`Invalid label: ${value}. Allowed labels are bug, enhancement.`);
+    throw new Error(`Invalid label: ${value}. Allowed labels are bug, improvement, feature.`);
   }
 
   return normalized;
@@ -1162,21 +1169,21 @@ Commands:
   list                Read and print issues from backlog/issues.json.
   show                Print one issue from backlog/issues.json.
   start-issue         Create or switch to the branch for an issue.
-  commit-fix          Stage files, commit progress for an issue, and optionally push.
+  mark-done           Stage files, commit progress for an issue, and optionally push.
   create-issue        Create a new issue on the remote repository.
 
   Options:
     --cwd <path>       Start searching for the git repository from this directory.
     --remote <name>    Git remote to inspect. Defaults to "origin".
     --token <token>    GitHub token. Falls back to GITHUB_TOKEN or GH_TOKEN.
-    --all              Include enhancement issues in list output.
-    --issue <number>   Issue number for show, start-issue, or commit-fix.
-    --title <text>     Issue title for create-issue or commit title for commit-fix.
-    --description <t>  Issue description for create-issue or commit description/text for commit-fix.
-    --label <name>     Issue label for create-issue. One of: bug, enhancement.
-    --files <paths>    Files to stage for commit-fix.
-  --push             Push after commit-fix.
-  --branch <name>    Push target branch for commit-fix.
+    --all              Include improvement and feature issues in list output.
+    --issue <number>   Issue number for show, start-issue, or mark-done.
+    --title <text>     Issue title for create-issue or commit title for mark-done.
+    --description <t>  Issue description for create-issue or commit description/text for mark-done.
+      --label <name>     Issue label for create-issue. One of: bug, improvement, feature.
+    --files <paths>    Files to stage for mark-done.
+  --push             Push after mark-done.
+  --branch <name>    Push target branch for mark-done.
   --json             Print the full result as JSON.
   --output <path>    Save the full result as JSON to a file.
   --help, -h         Show this help message.
