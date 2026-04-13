@@ -1073,7 +1073,7 @@ async function requireGitHubToken(options = {}, remoteUrl = null) {
 }
 
 async function lookupTokenForRepository(remoteUrl, lookupPath = getDefaultLookupPath()) {
-  const records = await readTokenLookup(lookupPath);
+  const records = await readTokenLookup(lookupPath ?? getDefaultLookupPath());
   const target = normalizeRepositoryRemote(remoteUrl);
 
   for (const record of records) {
@@ -1087,7 +1087,7 @@ async function lookupTokenForRepository(remoteUrl, lookupPath = getDefaultLookup
 
 async function readTokenLookup(lookupPath = getDefaultLookupPath()) {
   try {
-    const contents = await fs.readFile(lookupPath, "utf8");
+    const contents = await fs.readFile(lookupPath ?? getDefaultLookupPath(), "utf8");
     const records = [];
 
     for (const rawLine of contents.split(/\r?\n/)) {
