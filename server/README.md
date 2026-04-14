@@ -10,6 +10,8 @@ node ./server.js serve
 
 The server listens on `127.0.0.1:4317` by default.
 
+If you install the root package globally, the relay server is also exposed as `issues-relay-server`.
+
 ## Open The REPL
 
 ```bash

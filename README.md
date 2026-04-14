@@ -34,6 +34,12 @@ The package metadata also defines a global executable name, so installing the pa
 github-issues-resolver --help
 ```
 
+The same global install also exposes the relay server as `issues-relay-server`:
+
+```bash
+issues-relay-server --help
+```
+
 ## Authentication
 
 Commands that talk to GitHub require a token. The CLI checks for credentials in this order:
