@@ -13,10 +13,10 @@
     "AGENT.md"
   ],
   "scripts": {
-    "build:windows-exe": "powershell -NoProfile -File ./build/rust/cli/build-windows-exe.ps1",
-    "build:windows-server-exe": "powershell -NoProfile -File ./build/rust/server/build-windows-exe.ps1",
-    "start": "node ./src/node/cli/cli.js",
-    "test": "node --check ./src/node/cli/cli.js && node --check ./src/node/server/server.js && node --check ./src/node/shared/repository.js && powershell -NoProfile -Command \"if (!(Test-Path './src/rust/Cargo.toml')) { exit 1 }; if (!(Test-Path './build/rust/cli/build-windows-exe.ps1')) { exit 1 }; if (!(Test-Path './build/rust/server/build-windows-exe.ps1')) { exit 1 }\""
+    "build:windows-exe": "powershell -NoProfile -ExecutionPolicy Bypass -File ./build/rust/cli/build-windows-exe.ps1",
+    "build:windows-server-exe": "powershell -NoProfile -ExecutionPolicy Bypass -File ./build/rust/server/build-windows-exe.ps1",
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& \\\"$env:USERPROFILE\\.cargo\\bin\\cargo.exe\\\" run --manifest-path ./src/rust/Cargo.toml -p github-issues-resolver --\"",
+    "test": "node --check ./src/node/cli/cli.js && node --check ./src/node/server/server.js && node --check ./src/node/shared/repository.js && powershell -NoProfile -Command \"if (!(Test-Path './src/rust/Cargo.toml')) { exit 1 }; if (!(Test-Path './build/rust/cli/build-windows-exe.ps1')) { exit 1 }; if (!(Test-Path './build/rust/server/build-windows-exe.ps1')) { exit 1 }; & \\\"$env:USERPROFILE\\.cargo\\bin\\cargo.exe\\\" check --manifest-path ./src/rust/Cargo.toml --target-dir \\\"$env:TEMP\\tools-github-issues-resolver-rust-check\\\"\""
   },
   "engines": {
     "node": ">=18"

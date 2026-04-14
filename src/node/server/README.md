@@ -28,7 +28,7 @@ npm install
 ```bash
 node ./server.js serve [--host 127.0.0.1] [--port 4317]
 node ./server.js repl
-node ./server.js add-repo --url <repository-url> --folder <repository-folder> --token <github-token>
+ node ./server.js add --url <repository-url> --folder <repository-folder> --token <github-token>
 ```
 
 If no command is provided, the server defaults to `serve`.
@@ -47,7 +47,7 @@ The server listens on:
 
 Open the relay vault REPL without starting the HTTP listener.
 
-### `add-repo`
+### `add`
 
 Add or update a repository entry in the relay vault.
 
@@ -103,7 +103,7 @@ node ./server.js repl
 Register a repository:
 
 ```bash
-node ./server.js add-repo --url https://github.com/owner/repo --folder C:\path\to\repo --token ghp_example
+node ./server.js add --url https://github.com/owner/repo --folder C:\path\to\repo --token ghp_example
 ```
 
 ## Development

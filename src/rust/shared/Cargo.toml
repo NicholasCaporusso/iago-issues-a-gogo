@@ -7,3 +7,7 @@ description = "Shared helpers for the GitHub issues resolver Rust workspace."
 [lib]
 name = "github_issues_resolver_shared"
 path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

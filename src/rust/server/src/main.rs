@@ -1,11 +1,30 @@
 use github_issues_resolver_shared::{
+    backlog_path,
     default_relay_host,
     default_relay_port,
     default_relay_url,
+    find_git_root,
+    parse_git_hub_remote,
+    normalize_repository_remote,
+    read_backlog,
     workspace_banner,
+    Backlog,
+    Issue,
+    write_backlog,
 };
+use reqwest::blocking::Client;
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
+use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs;
+use std::io::{self, BufRead, Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 fn main() -> ExitCode {
     match run() {
@@ -26,20 +45,32 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
+    let remaining_args: Vec<String> = args.collect();
+
     match command.as_str() {
         "serve" => {
+            let options = parse_server_options(&remaining_args)?;
+            let server = start_http_server(&options.host, options.port, &options.vault_path)?;
             println!("{}", workspace_banner("issues-relay-server serve"));
             println!(
-                "Listening on http://{}:{} (scaffold only)",
-                default_relay_host(),
-                default_relay_port()
+                "Listening on http://{}:{}",
+                options.host, options.port
             );
+            run_repl_loop("relay-server> ", &options.vault_path, Some(&server))?;
+            server.stop();
         }
         "repl" => {
-            println!("Rust implementation scaffold: repl");
+            let options = parse_server_options(&remaining_args)?;
+            println!("{}", workspace_banner("issues-relay-server repl"));
+            run_repl_loop("relay> ", &options.vault_path, None)?;
         }
-        "add-repo" => {
-            println!("Rust implementation scaffold: add-repo");
+        "list" => {
+            let options = parse_server_options(&remaining_args)?;
+            print_vault_entries(&options.vault_path)?;
+        }
+        "add" => {
+            let options = parse_add_repo_options(&remaining_args, default_vault_path(), false)?;
+            add_repo_command(&options)?;
         }
         other => {
             return Err(format!("Unsupported command: {other}"));
@@ -50,12 +81,781 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn print_help() {
-    println!(
-        "issues-relay-server (Rust scaffold)\n\n\
-Usage:\n\
-  issues-relay-server serve [--host 127.0.0.1] [--port 4317]\n\
-  issues-relay-server repl\n\
-  issues-relay-server add-repo --url <repository-url> --folder <repository-folder> --token <github-token>\n"
+#[derive(Debug, Clone)]
+struct ServerOptions {
+    host: String,
+    port: u16,
+    vault_path: PathBuf,
+}
+
+struct RelayServerHandle {
+    stop: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone)]
+struct AddRepoOptions {
+    vault_path: PathBuf,
+    repository_url: Option<String>,
+    folder: Option<String>,
+    token: Option<String>,
+    interactive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct Vault {
+    #[serde(default)]
+    repos: Vec<VaultRepo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct VaultRepo {
+    folder: String,
+    repository_url: String,
+    token: String,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+}
+
+fn parse_server_options(argv: &[String]) -> Result<ServerOptions, String> {
+    let mut host = default_relay_host().to_owned();
+    let mut port = default_relay_port();
+    let mut vault_path = default_vault_path();
+    let mut index = 0;
+
+    while index < argv.len() {
+        match argv[index].as_str() {
+            "--host" => {
+                index += 1;
+                host = require_value(argv, index, "--host")?;
+            }
+            "--port" => {
+                index += 1;
+                port = parse_port(&require_value(argv, index, "--port")?)?;
+            }
+            "--vault" => {
+                index += 1;
+                vault_path = PathBuf::from(require_value(argv, index, "--vault")?);
+            }
+            "--help" | "-h" => {
+                return Ok(ServerOptions {
+                    host,
+                    port,
+                    vault_path,
+                });
+            }
+            value => {
+                return Err(format!("Unknown argument: {value}"));
+            }
+        }
+
+        index += 1;
+    }
+
+    Ok(ServerOptions {
+        host,
+        port,
+        vault_path,
+    })
+}
+
+fn parse_add_repo_options(
+    argv: &[String],
+    default_vault_path: PathBuf,
+    interactive: bool,
+) -> Result<AddRepoOptions, String> {
+    let mut options = AddRepoOptions {
+        vault_path: default_vault_path,
+        repository_url: None,
+        folder: None,
+        token: None,
+        interactive,
+    };
+    let mut index = 0;
+
+    while index < argv.len() {
+        match argv[index].as_str() {
+            "--vault" => {
+                index += 1;
+                options.vault_path = PathBuf::from(require_value(argv, index, "--vault")?);
+            }
+            "--url" => {
+                index += 1;
+                options.repository_url = Some(require_value(argv, index, "--url")?);
+            }
+            "--folder" => {
+                index += 1;
+                options.folder = Some(require_value(argv, index, "--folder")?);
+            }
+            "--token" => {
+                index += 1;
+                options.token = Some(require_value(argv, index, "--token")?);
+            }
+            "--help" | "-h" => {
+                return Ok(options);
+            }
+            value => {
+                return Err(format!("Unknown argument: {value}"));
+            }
+        }
+
+        index += 1;
+    }
+
+    Ok(options)
+}
+
+fn require_value(argv: &[String], index: usize, flag_name: &str) -> Result<String, String> {
+    let value = argv.get(index).cloned();
+
+    match value {
+        Some(value) if !value.starts_with("--") => Ok(value),
+        _ => Err(format!("Missing value for {flag_name}.")),
+    }
+}
+
+fn parse_port(value: &str) -> Result<u16, String> {
+    let port = value
+        .parse::<u16>()
+        .map_err(|_| format!("Invalid port: {value}"))?;
+
+    if port == 0 {
+        return Err(format!("Invalid port: {value}"));
+    }
+
+    Ok(port)
+}
+
+fn default_vault_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("vault")
+        .join("repos.json")
+}
+
+impl RelayServerHandle {
+    fn stop(mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn start_http_server(host: &str, port: u16, vault_path: &Path) -> Result<RelayServerHandle, String> {
+    let listener = TcpListener::bind((host, port))
+        .map_err(|error| format!("Failed to bind http://{host}:{port}: {error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("Failed to configure listener: {error}"))?;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_flag = Arc::clone(&stop);
+    let vault_path = vault_path.to_path_buf();
+    let thread = thread::spawn(move || {
+        while !stop_flag.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let vault_path = vault_path.clone();
+                    thread::spawn(move || {
+                        if let Err(error) = handle_http_connection(stream, &vault_path) {
+                            eprintln!("{error}");
+                        }
+                    });
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Err(error) => {
+                    eprintln!("Relay server accept error: {error}");
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(RelayServerHandle {
+        stop,
+        thread: Some(thread),
+    })
+}
+
+fn handle_http_connection(mut stream: TcpStream, vault_path: &Path) -> Result<(), String> {
+    let mut reader = io::BufReader::new(
+        stream
+            .try_clone()
+            .map_err(|error| format!("Failed to clone stream: {error}"))?,
     );
+    let mut request_line = String::new();
+    reader
+        .read_line(&mut request_line)
+        .map_err(|error| format!("Failed to read request line: {error}"))?;
+
+    if request_line.trim().is_empty() {
+        return Ok(());
+    }
+
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let path = parts.next().unwrap_or("");
+    let mut content_length = 0usize;
+
+    loop {
+        let mut header_line = String::new();
+        reader
+            .read_line(&mut header_line)
+            .map_err(|error| format!("Failed to read request header: {error}"))?;
+        let trimmed = header_line.trim_end_matches(['\r', '\n']);
+
+        if trimmed.is_empty() {
+            break;
+        }
+
+        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
+            content_length = value.trim().parse::<usize>().unwrap_or(0);
+        }
+    }
+
+    let mut body = vec![0u8; content_length];
+    if content_length > 0 {
+        reader
+            .read_exact(&mut body)
+            .map_err(|error| format!("Failed to read request body: {error}"))?;
+    }
+
+    let response = match (method, path) {
+        ("GET", "/health") => http_json_response(200, serde_json::json!({ "ok": true })),
+        ("POST", "/sync") => {
+            match serde_json::from_slice::<SyncRelayRequest>(&body) {
+                Ok(payload) => match handle_sync_relay(payload, vault_path) {
+                    Ok(result) => http_json_response(
+                        200,
+                        serde_json::to_value(result).map_err(|error| error.to_string())?,
+                    ),
+                    Err(error) => http_json_response(400, serde_json::json!({ "error": error })),
+                },
+                Err(error) => http_json_response(400, serde_json::json!({
+                    "error": format!("Request body must be valid JSON: {error}")
+                })),
+            }
+        }
+        _ => http_json_response(404, serde_json::json!({ "error": "Not found." })),
+    };
+
+    stream
+        .write_all(response.as_bytes())
+        .map_err(|error| format!("Failed to write response: {error}"))?;
+    Ok(())
+}
+
+fn http_json_response(status: u16, body: serde_json::Value) -> String {
+    let status_text = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _ => "OK",
+    };
+    let body_text = serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".to_owned());
+    format!(
+        "HTTP/1.1 {status} {status_text}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_text}",
+        body_text.len()
+    )
+}
+
+fn run_repl_loop(prompt: &str, vault_path: &Path, _server: Option<&RelayServerHandle>) -> Result<(), String> {
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+    let mut input = String::new();
+
+    println!("Type 'help' for commands, or 'quit' to exit.");
+
+    loop {
+        input.clear();
+        write!(stdout, "{prompt}").map_err(|error| error.to_string())?;
+        stdout.flush().map_err(|error| error.to_string())?;
+
+        let bytes_read = stdin
+            .lock()
+            .read_line(&mut input)
+            .map_err(|error| error.to_string())?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        let trimmed = input.trim();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let tokens = split_command_line(trimmed);
+        let command = tokens.first().cloned().unwrap_or_default();
+        let command_args = tokens.into_iter().skip(1).collect::<Vec<_>>();
+
+        match command.as_str() {
+            "quit" | "exit" => break,
+            "help" => print_repl_help(),
+            "list" => print_vault_entries(vault_path)?,
+            "add" => {
+                let options = parse_add_repo_options(&command_args, vault_path.to_path_buf(), true)?;
+                add_repo_command(&options)?;
+            }
+            other => println!("Unknown command: {other}"),
+        }
+    }
+
+    Ok(())
+}
+
+fn split_command_line(input: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut quote_char = '\0';
+
+    for ch in input.chars() {
+        match ch {
+            '"' | '\'' if !in_quotes => {
+                in_quotes = true;
+                quote_char = ch;
+            }
+            ch if in_quotes && ch == quote_char => {
+                in_quotes = false;
+            }
+            ch if ch.is_whitespace() && !in_quotes => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            ch => current.push(ch),
+        }
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    tokens
+}
+
+fn print_vault_entries(vault_path: &Path) -> Result<(), String> {
+    let vault = read_vault(vault_path)?;
+
+    if vault.repos.is_empty() {
+        println!("No repositories are stored in the vault.");
+        return Ok(());
+    }
+
+    for repo in vault.repos {
+        let token_note = if repo.token.trim().is_empty() {
+            " (no token)".to_owned()
+        } else {
+            " (token stored)".to_owned()
+        };
+
+        println!("- {} -> {}{}", repo.repository_url, repo.folder, token_note);
+    }
+
+    Ok(())
+}
+
+fn add_repo_command(options: &AddRepoOptions) -> Result<(), String> {
+    let repository_url = match options.repository_url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value.to_owned(),
+        None if options.interactive => prompt_value("Repository URL: ")?,
+        None => {
+            return Err("The add command requires --url <repository-url>.".to_owned());
+        }
+    };
+
+    let folder = match options.folder.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value.to_owned(),
+        None if options.interactive => prompt_value("Repository folder: ")?,
+        None => {
+            return Err("The add command requires --folder <repository-folder>.".to_owned());
+        }
+    };
+
+    let token = match options.token.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value.to_owned(),
+        None if options.interactive => prompt_value("GitHub token: ")?,
+        None => {
+            return Err("The add command requires --token <github-token>.".to_owned());
+        }
+    };
+
+    store_repo(&options.vault_path, &repository_url, &folder, &token)?;
+    println!(
+        "Stored {} -> {}",
+        normalize_repository_remote(&repository_url),
+        find_git_root(Path::new(&folder))?.display()
+    );
+    Ok(())
+}
+
+fn prompt_value(prompt: &str) -> Result<String, String> {
+    let mut stdout = io::stdout();
+    let mut input = String::new();
+
+    write!(stdout, "{prompt}").map_err(|error| error.to_string())?;
+    stdout.flush().map_err(|error| error.to_string())?;
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(|error| error.to_string())?;
+
+    let value = input.trim().to_owned();
+    if value.is_empty() {
+        return Err("Input cannot be empty.".to_owned());
+    }
+
+    Ok(value)
+}
+
+fn store_repo(
+    vault_path: &Path,
+    repository_url: &str,
+    folder: &str,
+    token: &str,
+) -> Result<(), String> {
+    let repo_root = find_git_root(Path::new(folder))?;
+    let normalized_url = normalize_repository_remote(repository_url);
+    let mut vault = read_vault(vault_path)?;
+    let now = Some(iso_timestamp());
+    let next_record = VaultRepo {
+        folder: repo_root.display().to_string(),
+        repository_url: normalized_url,
+        token: token.to_owned(),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+
+    if let Some(index) = vault.repos.iter().position(|repo| {
+        repo.repository_url == next_record.repository_url || Path::new(&repo.folder) == repo_root
+    }) {
+        let created_at = vault.repos[index].created_at.clone();
+        vault.repos[index] = VaultRepo {
+            created_at,
+            ..next_record
+        };
+    } else {
+        vault.repos.push(next_record);
+    }
+
+    write_vault(vault_path, &vault)
+}
+
+fn iso_timestamp() -> String {
+    let now = std::time::SystemTime::now();
+    let datetime = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("{datetime}")
+}
+
+fn read_vault(vault_path: &Path) -> Result<Vault, String> {
+    match fs::read_to_string(vault_path) {
+        Ok(contents) => {
+            let vault: Vault = serde_json::from_str(&contents)
+                .map_err(|error| format!("Failed to parse {}: {error}", vault_path.display()))?;
+            Ok(vault)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vault::default()),
+        Err(error) => Err(format!("Failed to read {}: {error}", vault_path.display())),
+    }
+}
+
+fn write_vault(vault_path: &Path, vault: &Vault) -> Result<(), String> {
+    if let Some(parent) = vault_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+    }
+
+    let contents = serde_json::to_string_pretty(vault)
+        .map_err(|error| format!("Failed to serialize vault: {error}"))?;
+    fs::write(vault_path, format!("{contents}\n"))
+        .map_err(|error| format!("Failed to write {}: {error}", vault_path.display()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncRelayRequest {
+    #[serde(default)]
+    remote: Option<String>,
+    repository_folder: String,
+    repository_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubIssueApi {
+    number: u64,
+    title: String,
+    #[serde(default)]
+    body: Option<String>,
+    state: String,
+    #[serde(default)]
+    html_url: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+    #[serde(default)]
+    user: Option<GitHubUser>,
+    #[serde(default)]
+    labels: Vec<GitHubLabel>,
+    #[serde(default)]
+    pull_request: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubLabel {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubUser {
+    #[serde(default)]
+    login: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RelaySyncResponse {
+    #[serde(flatten)]
+    backlog: Backlog,
+    ok: bool,
+    repository_folder: String,
+    repository_url: String,
+}
+
+fn handle_sync_relay(payload: SyncRelayRequest, vault_path: &Path) -> Result<RelaySyncResponse, String> {
+    let repository_folder = find_git_root(Path::new(&payload.repository_folder))?;
+    let repository_url = normalize_repository_remote(&payload.repository_url);
+    let vault = read_vault(vault_path)?;
+    let repo = vault
+        .repos
+        .into_iter()
+        .find(|entry| normalize_repository_remote(&entry.repository_url) == repository_url && Path::new(&entry.folder) == repository_folder)
+        .ok_or_else(|| {
+            format!(
+                "Repository is not registered in the relay vault: {repository_url} ({})",
+                repository_folder.display()
+            )
+        })?;
+
+    let remote_name = payload.remote.unwrap_or_else(|| "origin".to_owned());
+    let repository = parse_git_hub_remote(&repo.repository_url)?;
+    let backlog = sync_issues_from_repository(
+        &repository,
+        &repo.token,
+        &remote_name,
+        &repository_url,
+        &repository_folder,
+    )?;
+
+    Ok(RelaySyncResponse {
+        backlog,
+        ok: true,
+        repository_folder: repo.folder,
+        repository_url: repo.repository_url,
+    })
+}
+
+fn sync_issues_from_repository(
+    repository: &github_issues_resolver_shared::RepositoryInfo,
+    token: &str,
+    remote_name: &str,
+    remote_url: &str,
+    repo_root: &Path,
+) -> Result<Backlog, String> {
+    let client = github_client(token)?;
+    let existing_backlog = read_backlog(backlog_path(repo_root))?;
+    let issues = fetch_open_issues(&client, repository, token, existing_backlog, remote_name, remote_url)?;
+    let backlog = Backlog {
+        repository: Some(format!("{}/{}", repository.owner, repository.repo)),
+        host: Some(repository.host.clone()),
+        remote: Some(remote_name.to_owned()),
+        remote_url: Some(remote_url.to_owned()),
+        issue_count: issues.len(),
+        issues,
+    };
+
+    write_backlog(backlog_path(repo_root), &backlog)?;
+    Ok(backlog)
+}
+
+fn github_client(token: &str) -> Result<Client, String> {
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github+json"));
+    headers.insert(USER_AGENT, HeaderValue::from_static("github-issues-resolver"));
+    let auth_value = HeaderValue::from_str(&format!("Bearer {token}"))
+        .map_err(|error| format!("Invalid GitHub token header: {error}"))?;
+    headers.insert(AUTHORIZATION, auth_value);
+
+    Client::builder()
+        .default_headers(headers)
+        .build()
+        .map_err(|error| format!("Failed to build HTTP client: {error}"))
+}
+
+fn fetch_open_issues(
+    client: &Client,
+    repository: &github_issues_resolver_shared::RepositoryInfo,
+    token: &str,
+    existing_backlog: Backlog,
+    remote_name: &str,
+    remote_url: &str,
+) -> Result<Vec<Issue>, String> {
+    let mut issues = Vec::new();
+    let mut page = 1usize;
+    let existing_issues = existing_backlog
+        .issues
+        .into_iter()
+        .map(|issue| (issue.number, issue))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    loop {
+        let url = format!(
+            "{}/repos/{}/{}/issues?state=open&per_page=100&page={page}",
+            repository.api_base_url, repository.owner, repository.repo
+        );
+
+        let response = client
+            .get(url)
+            .send()
+            .map_err(|error| build_repository_fetch_error("fetch issues", error, repository, remote_name, remote_url))?;
+
+        if response.status().as_u16() == 401 || response.status().as_u16() == 403 {
+            let body = response.text().unwrap_or_default();
+            return Err(format!("Authentication failed or rate limit exceeded: {body}"));
+        }
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().unwrap_or_default();
+            return Err(build_repository_api_error(
+                "fetch issues",
+                repository,
+                remote_name,
+                remote_url,
+                !token.trim().is_empty(),
+                status,
+                body,
+            ));
+        }
+
+        let page_items: Vec<GitHubIssueApi> = response
+            .json()
+            .map_err(|error| format!("Failed to decode GitHub response: {error}"))?;
+        let has_more = page_items.len() >= 100;
+
+        for item in page_items.into_iter().filter(|item| item.pull_request.is_none()) {
+            if let Some(existing) = existing_issues.get(&item.number) {
+                if existing.updated_at == item.updated_at {
+                    issues.push(existing.clone());
+                    continue;
+                }
+            }
+
+            issues.push(Issue {
+                number: item.number,
+                title: item.title,
+                description: item.body,
+                state: item.state,
+                labels: item.labels.into_iter().map(|label| label.name).collect(),
+                html_url: item.html_url,
+                created_at: item.created_at,
+                updated_at: item.updated_at,
+                author: item.user.and_then(|user| user.login),
+            });
+        }
+
+        if !has_more {
+            break;
+        }
+
+        page += 1;
+    }
+
+    Ok(issues)
+}
+
+fn build_repository_api_error(
+    action: &str,
+    repository: &github_issues_resolver_shared::RepositoryInfo,
+    remote_name: &str,
+    remote_url: &str,
+    token_present: bool,
+    status: u16,
+    body: String,
+) -> String {
+    let remote_label = format!("{remote_name} ({remote_url})");
+    let repo_name = format!("{}/{}", repository.owner, repository.repo);
+    let reason = if body.trim().is_empty() {
+        format!("GitHub API returned {status}.")
+    } else {
+        body
+    };
+
+    if status == 404 {
+        let auth_hint = if token_present {
+            "The remote may be wrong, the repository may not exist, or issues may be disabled."
+        } else {
+            "If this repository is private, GitHub returns 404 unless you provide a token."
+        };
+
+        return format!(
+            "Failed to {action} from {remote_label} for {repo_name}: {reason}. {auth_hint}"
+        );
+    }
+
+    format!("Failed to {action} from {remote_label}: {reason}")
+}
+
+fn build_repository_fetch_error(
+    action: &str,
+    error: reqwest::Error,
+    repository: &github_issues_resolver_shared::RepositoryInfo,
+    remote_name: &str,
+    remote_url: &str,
+) -> String {
+    let remote_label = format!("{remote_name} ({remote_url})");
+    let repo_name = format!("{}/{}", repository.owner, repository.repo);
+    let cause_message = error.to_string();
+    format!(
+        "Failed to {action} from {remote_label} for {repo_name}: {cause_message}. Check network connectivity, authentication, and repository configuration."
+    )
+}
+
+fn print_repl_help() {
+    let vault_path = default_vault_path();
+    println!(
+        "Commands:\n\
+  help      Show this help.\n\
+  list      list [--vault <path>]\n\
+            Show repositories currently stored in the vault.\n\
+  add       add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
+            Add or update a repository in the vault.\n\
+  quit      Leave the REPL.\n\
+  exit      Same as quit.\n\n\
+Default vault:"
+    );
+    println!("  {}", vault_path.display());
+}
+
+fn print_help() {
+    let vault_path = default_vault_path();
+    println!(
+        "issues-relay-server\n\n\
+Usage:\n\
+  issues-relay-server serve [--host 127.0.0.1] [--port 4317] [--vault <path>]\n\
+  issues-relay-server repl [--vault <path>]\n\
+  issues-relay-server list [--vault <path>]\n\
+  issues-relay-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\n\
+Default vault:"
+    );
+    println!("  {}", vault_path.display());
 }

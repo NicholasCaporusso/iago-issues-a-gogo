@@ -34,7 +34,7 @@ async function main() {
       case "repl":
         await startVaultRepl(options);
         return;
-      case "add-repo":
+      case "add":
         await addRepoCommand(options);
         return;
       default:
@@ -114,15 +114,15 @@ function parsePort(value) {
 
 async function addRepoCommand(options) {
   if (!options.url) {
-    throw new Error("The add-repo command requires --url <repository-url>.");
+    throw new Error("The add command requires --url <repository-url>.");
   }
 
   if (!options.folder) {
-    throw new Error("The add-repo command requires --folder <repository-folder>.");
+    throw new Error("The add command requires --folder <repository-folder>.");
   }
 
   if (!options.token) {
-    throw new Error("The add-repo command requires --token <github-token>.");
+    throw new Error("The add command requires --token <github-token>.");
   }
 
   const repoRoot = await findGitRoot(path.resolve(options.folder));
@@ -242,7 +242,7 @@ async function startVaultRepl(options, hooks = {}) {
         continue;
       }
 
-      if (normalizedCommand === "add" || normalizedCommand === "add-repo") {
+      if (normalizedCommand === "add") {
         const repoOptions = await buildRepoEntryFromReplArgs(rl, options.vaultPath, args);
         await addRepoCommand(repoOptions);
         continue;
@@ -555,7 +555,7 @@ function printHelp() {
 Usage:
   node ./server.js serve [--host 127.0.0.1] [--port 4317]
   node ./server.js repl
-  node ./server.js add-repo --url <repository-url> --folder <repository-folder> --token <github-token>
+  node ./server.js add --url <repository-url> --folder <repository-folder> --token <github-token>
 
 Options:
   --host <host>     Host to bind the relay server to. Defaults to 127.0.0.1.
@@ -587,7 +587,7 @@ async function buildRepoEntryFromReplArgs(rl, vaultPath, args) {
   const token = parsed.token ?? (await rl.question("GitHub token: ")).trim();
 
   return {
-    command: "add-repo",
+  command: "add",
     folder,
     token,
     url: repositoryUrl,
