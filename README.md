@@ -4,6 +4,8 @@
 
 Use with Claude, Codex, and any other agent running in a sandbox to direct and track development using GitHub issues.
 
+**To understand what I mean, read [AGENT.md](./AGENT.md).**
+
 This repository contains two Windows-ready Rust applications:
 
 - `iago`, the command-line client for syncing issues, managing the local backlog, and working issue branches
