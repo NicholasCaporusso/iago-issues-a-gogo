@@ -2,17 +2,17 @@
 
 `tools-github-issues-resolver` is a Node.js CLI for pulling GitHub issues into a local backlog, reviewing them from the terminal, starting issue branches, and recording completed work back to the repository.
 
-It is built to run inside a Git repository that already has a GitHub remote configured. The CLI discovers the repository root, reads the remote from Git config, talks to the GitHub Issues API, and stores a local cache under `backlog/`.
+It is built to run inside a Git repository that already has a GitHub remote configured. The CLI discovers the repository root, reads the remote from Git config, talks to the GitHub Issues API, and stores a local cache under `.backlog/`.
 
 ## What It Does
 
-- Syncs open GitHub issues into `backlog/issues.json`
+- Syncs open GitHub issues into `.backlog/issues.json`
 - Lists active issues from the local backlog cache
 - Shows the full body for a specific issue
 - Creates or switches to an `issue/<number>` branch
 - Stages and commits work for an issue, then attempts to close it on GitHub
 - Creates new GitHub issues from the command line
-- Downloads remote images referenced in issue bodies into `backlog/images/<issue-number>/`
+- Downloads remote images referenced in issue bodies into `.backlog/images/<issue-number>/`
 
 ## Requirements
 
@@ -42,7 +42,7 @@ The repository URL is normalized before comparison, so HTTPS and SSH remotes for
 This repository does not require a build step. Run the CLI directly with Node:
 
 ```bash
-node ./index.js --help
+node ./cli/cli.js --help
 ```
 
 You can also use the package script:
@@ -80,7 +80,7 @@ If you also want the relay server to push after the completion commit, add `--sa
 ## Usage
 
 ```bash
-node ./index.js [command] [options]
+node ./cli/cli.js [command] [options]
 ```
 
 If you omit the command, the CLI shows the help text.
@@ -91,11 +91,13 @@ If you omit the command, the CLI shows the help text.
 
 Fetches open GitHub issues from the configured remote and writes the local backlog file.
 
+If the CLI does not have a token, `sync` sends the request to the local relay server and the server uses its vault-stored token for that repository.
+
 ```bash
-node ./index.js sync
-node ./index.js sync --remote upstream
-node ./index.js sync --json
-node ./index.js sync --output tmp/issues.json
+node ./cli/cli.js sync
+node ./cli/cli.js sync --remote upstream
+node ./cli/cli.js sync --json
+node ./cli/cli.js sync --output tmp/issues.json
 ```
 
 Notes:
@@ -106,12 +108,12 @@ Notes:
 
 ### `list`
 
-Reads `backlog/issues.json` and prints the active issue queue.
+Reads `.backlog/issues.json` and prints the active issue queue.
 
 ```bash
-node ./index.js list
-node ./index.js list --all
-node ./index.js list --json
+node ./cli/cli.js list
+node ./cli/cli.js list --all
+node ./cli/cli.js list --json
 ```
 
 By default, `list` only shows open issues that either:
@@ -126,8 +128,8 @@ Use `--all` to include `improvement` and `feature` issues as well.
 Displays the full details for a single issue from the local backlog cache.
 
 ```bash
-node ./index.js show --issue 12
-node ./index.js show --issue 12 --json
+node ./cli/cli.js show --issue 12
+node ./cli/cli.js show --issue 12 --json
 ```
 
 If the backlog cache does not exist yet, the CLI will sync first.
@@ -137,7 +139,7 @@ If the backlog cache does not exist yet, the CLI will sync first.
 Creates or switches to the local Git branch for an issue. The branch format is `issue/<number>`.
 
 ```bash
-node ./index.js start-issue --issue 12
+node ./cli/cli.js start-issue --issue 12
 ```
 
 ### `completed`
@@ -145,11 +147,11 @@ node ./index.js start-issue --issue 12
 Stages changes, creates a Git commit for the issue, and then attempts to close the matching GitHub issue. It can also push the branch when requested.
 
 ```bash
-node ./index.js completed --issue 12 --title "Document CLI usage" --description "Rewrite README to match the live commands."
-node ./index.js completed --issue 12 --description "Fix edge case in image extension detection." --files index.js README.md
-node ./index.js completed --issue 12 --title "Close issue 12" --description "Patch implementation and update docs." --push --branch issue/12
-node ./index.js completed --issue 12 --title "Close issue 12" --description "Patch implementation and update docs." --relay
-node ./index.js completed --issue 12 --title "Close issue 12" --description "Patch implementation and update docs." --relay --save
+node ./cli/cli.js completed --issue 12 --title "Document CLI usage" --description "Rewrite README to match the live commands."
+node ./cli/cli.js completed --issue 12 --description "Fix edge case in image extension detection." --files cli/cli.js README.md
+node ./cli/cli.js completed --issue 12 --title "Close issue 12" --description "Patch implementation and update docs." --push --branch issue/12
+node ./cli/cli.js completed --issue 12 --title "Close issue 12" --description "Patch implementation and update docs." --relay
+node ./cli/cli.js completed --issue 12 --title "Close issue 12" --description "Patch implementation and update docs." --relay --save
 ```
 
 Behavior:
@@ -166,7 +168,7 @@ Behavior:
 Creates a new GitHub issue on the configured remote repository.
 
 ```bash
-node ./index.js report --title "Add tests" --description "Cover sync and list flows."
+node ./cli/cli.js report --title "Add tests" --description "Cover sync and list flows."
 ```
 
 ### `create-issue`
@@ -174,8 +176,8 @@ node ./index.js report --title "Add tests" --description "Cover sync and list fl
 Creates a new GitHub issue on the configured remote repository. This is an alias of `report`.
 
 ```bash
-node ./index.js create-issue --title "Add tests" --description "Cover sync and list flows."
-node ./index.js create-issue --title "Improve docs" --description "Clarify token lookup behavior." --label improvement
+node ./cli/cli.js create-issue --title "Add tests" --description "Cover sync and list flows."
+node ./cli/cli.js create-issue --title "Improve docs" --description "Clarify token lookup behavior." --label improvement
 ```
 
 Supported labels:
@@ -206,22 +208,22 @@ Supported labels:
 
 ## Backlog Layout
 
-After a successful sync, the CLI writes files under `backlog/`:
+After a successful sync, the CLI writes files under `.backlog/`:
 
-- `backlog/issues.json`: cached issue metadata, labels, and descriptions
-- `backlog/images/<issue-number>/`: downloaded copies of images referenced by issue bodies
+- `.backlog/issues.json`: cached issue metadata, labels, and descriptions
+- `.backlog/images/<issue-number>/`: downloaded copies of images referenced by issue bodies
 
 When an issue body contains Markdown image syntax or HTML `<img>` tags that point at remote URLs, the CLI downloads those files and rewrites the cached issue description to use local relative paths.
 
 ## Typical Workflow
 
 ```bash
-node ./index.js sync
-node ./index.js list
-node ./index.js show --issue 12
-node ./index.js start-issue --issue 12
+node ./cli/cli.js sync
+node ./cli/cli.js list
+node ./cli/cli.js show --issue 12
+node ./cli/cli.js start-issue --issue 12
 # edit files
-node ./index.js completed --issue 12 --title "Fix issue 12" --description "Explain the change here." --relay
+node ./cli/cli.js completed --issue 12 --title "Fix issue 12" --description "Explain the change here." --relay
 ```
 
 ## Notes

@@ -10,8 +10,9 @@ import {
   buildIssueFixCommitMessage,
   closeRemoteIssue,
   findGitRoot,
-  normalizeRepositoryRemote
-} from "../index.js";
+  normalizeRepositoryRemote,
+  syncIssues
+} from "../cli.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
@@ -155,6 +156,13 @@ async function serveRelay(options) {
         return;
       }
 
+      if (request.method === "POST" && request.url === "/sync") {
+        const payload = await readJsonBody(request);
+        const result = await handleSyncRelay(payload, options.vaultPath);
+        respondJson(response, 200, result);
+        return;
+      }
+
       if (request.method === "GET" && request.url === "/health") {
         respondJson(response, 200, { ok: true });
         return;
@@ -214,6 +222,31 @@ async function handleCompletedRelay(payload, vaultPath) {
     ok: true,
     pushed: result.pushed,
     remote: result.remote,
+    repositoryFolder: repo.folder,
+    repositoryUrl: repo.repositoryUrl
+  };
+}
+
+async function handleSyncRelay(payload, vaultPath) {
+  const repositoryUrl = normalizeRepositoryRemote(payload.repositoryUrl);
+  const repositoryFolder = await findGitRoot(path.resolve(String(payload.repositoryFolder ?? "")));
+  const vault = await readVault(vaultPath);
+  const repo = vault.repos.find((entry) => {
+    return entry.repositoryUrl === repositoryUrl && path.resolve(entry.folder) === repositoryFolder;
+  });
+
+  if (!repo) {
+    throw new Error(`Repository is not registered in the relay vault: ${repositoryUrl} (${repositoryFolder})`);
+  }
+
+  const result = await syncIssues(repo.folder, {
+    remote: payload.remote ?? "origin",
+    token: repo.token
+  });
+
+  return {
+    ...result,
+    ok: true,
     repositoryFolder: repo.folder,
     repositoryUrl: repo.repositoryUrl
   };

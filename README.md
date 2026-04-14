@@ -2,17 +2,17 @@
 
 `tools-github-issues-resolver` is a Node.js CLI for syncing GitHub issues into a local backlog, reviewing them from the terminal, and recording issue completion back to the remote repository.
 
-The tool is designed to run inside a Git repository. It discovers the repository root, reads the configured Git remote, talks to the GitHub Issues API, and stores a local cache in `backlog/issues.json`.
+The tool is designed to run inside a Git repository. It discovers the repository root, reads the configured Git remote, talks to the GitHub Issues API, and stores a local cache in `.backlog/issues.json`.
 
 ## Features
 
-- Sync open GitHub issues into a local backlog file
+- Sync open GitHub issues into a local backlog file, using the relay server when no local token is provided
 - List cached issues from the backlog
 - Show the full details for a single issue
 - Create or switch to an issue branch
 - Commit work for an issue and close the matching remote issue
 - Create new GitHub issues from the CLI
-- Download remote issue images into `backlog/images/<issue-number>/` and rewrite issue bodies to point to the local files
+- Download remote issue images into `.backlog/images/<issue-number>/` and rewrite issue bodies to point to the local files
 
 ## Requirements
 
@@ -25,7 +25,7 @@ The tool is designed to run inside a Git repository. It discovers the repository
 Install dependencies if you add any later, then run the CLI directly with Node:
 
 ```bash
-node ./index.js --help
+node ./cli/cli.js --help
 ```
 
 The package metadata also defines a bin name:
@@ -53,27 +53,27 @@ https://github.com/owner/repo.git    ghp_exampleToken
 
 After a successful sync, the CLI writes:
 
-- `backlog/issues.json`: cached issue metadata and descriptions
-- `backlog/images/<issue-number>/`: downloaded images referenced by issue descriptions
+- `.backlog/issues.json`: cached issue metadata and descriptions
+- `.backlog/images/<issue-number>/`: downloaded images referenced by issue descriptions
 
 If an issue body contains Markdown or HTML image tags that point to remote URLs, those files are downloaded locally and the issue description stored in the backlog is rewritten to use the local relative paths.
 
 ## Usage
 
 ```bash
-node ./index.js [command] [options]
+node ./cli/cli.js [command] [options]
 ```
 
 ## Commands
 
 ### `sync`
 
-Downloads open issues from the configured GitHub remote and saves them to `backlog/issues.json`.
+Downloads open issues from the configured GitHub remote and saves them to `.backlog/issues.json`. If the CLI does not have a token, it sends the sync request to the relay server instead.
 
 ```bash
-node ./index.js sync
-node ./index.js sync --remote upstream
-node ./index.js sync --output tmp/issues.json --json
+node ./cli/cli.js sync
+node ./cli/cli.js sync --remote upstream
+node ./cli/cli.js sync --output tmp/issues.json --json
 ```
 
 ### `list`
@@ -81,17 +81,17 @@ node ./index.js sync --output tmp/issues.json --json
 Reads the backlog and prints the active issue list. By default, only open issues with no labels or the `bug` label are shown. Use `--all` to include `improvement` and `feature` issues too.
 
 ```bash
-node ./index.js list
-node ./index.js list --all
+node ./cli/cli.js list
+node ./cli/cli.js list --all
 ```
 
 ### `show`
 
-Prints the full details for a single issue from `backlog/issues.json`.
+Prints the full details for a single issue from `.backlog/issues.json`.
 
 ```bash
-node ./index.js show --issue 12
-node ./index.js show --issue 12 --json
+node ./cli/cli.js show --issue 12
+node ./cli/cli.js show --issue 12 --json
 ```
 
 ### `start-issue`
@@ -99,7 +99,7 @@ node ./index.js show --issue 12 --json
 Creates or switches to the Git branch for an issue. Branches use the format `issue/<number>`.
 
 ```bash
-node ./index.js start-issue --issue 12
+node ./cli/cli.js start-issue --issue 12
 ```
 
 ### `mark-done`
@@ -109,9 +109,9 @@ Stages changes, creates a Git commit, and closes the remote issue.
 If `--files` is omitted, the command stages all changes with `git add .`.
 
 ```bash
-node ./index.js mark-done --issue 12 --title "Add README" --description "Document setup and command usage"
-node ./index.js mark-done --issue 12 --description "Fix parser edge case" --files index.js README.md
-node ./index.js mark-done --issue 12 --title "Fix issue 12" --description "Patch and tests" --push --branch issue/12
+node ./cli/cli.js mark-done --issue 12 --title "Add README" --description "Document setup and command usage"
+node ./cli/cli.js mark-done --issue 12 --description "Fix parser edge case" --files cli/cli.js README.md
+node ./cli/cli.js mark-done --issue 12 --title "Fix issue 12" --description "Patch and tests" --push --branch issue/12
 ```
 
 When both `--title` and `--description` are present, the commit message uses the title as the subject and the description as the body:
@@ -127,8 +127,8 @@ Document setup and command usage
 Creates a new GitHub issue on the configured remote repository.
 
 ```bash
-node ./index.js create-issue --title "Add tests" --description "Cover sync and list flows"
-node ./index.js create-issue --title "Improve docs" --description "Document token lookup" --label improvement
+node ./cli/cli.js create-issue --title "Add tests" --description "Cover sync and list flows"
+node ./cli/cli.js create-issue --title "Improve docs" --description "Document token lookup" --label improvement
 ```
 
 Supported labels are:
@@ -157,12 +157,12 @@ Supported labels are:
 ## Typical Workflow
 
 ```bash
-node ./index.js sync
-node ./index.js list
-node ./index.js show --issue 12
-node ./index.js start-issue --issue 12
+node ./cli/cli.js sync
+node ./cli/cli.js list
+node ./cli/cli.js show --issue 12
+node ./cli/cli.js start-issue --issue 12
 # edit files
-node ./index.js mark-done --issue 12 --title "Fix issue 12" --description "Explain the change here"
+node ./cli/cli.js mark-done --issue 12 --title "Fix issue 12" --description "Explain the change here"
 ```
 
 ## Notes

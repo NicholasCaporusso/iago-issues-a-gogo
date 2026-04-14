@@ -4,16 +4,16 @@
   "description": "CLI to read a git remote and fetch open GitHub issues.",
   "type": "module",
   "bin": {
-    "github-issues-resolver": "./index.js"
+    "github-issues-resolver": "./cli/cli.js"
   },
   "files": [
-    "index.js",
+    "cli/cli.js",
     "user_guide.md",
     "AGENT.md",
     "relay-server"
   ],
   "scripts": {
-    "start": "node ./index.js",
+    "start": "node ./cli/cli.js",
     "test": "node ./test/index.test.js"
   },
   "engines": {

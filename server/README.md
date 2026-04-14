@@ -1,6 +1,6 @@
 # Relay Server
 
-This folder contains a separate local process that can accept `completed --relay` requests from the CLI and perform the real commit outside the sandboxed agent environment.
+This folder contains a separate local process that can accept `completed --relay` requests from the CLI and perform the real commit outside the sandboxed agent environment. It also handles `sync` requests when the CLI does not have a local token.
 
 ## Start The Server
 
@@ -31,3 +31,5 @@ node ./index.js completed --issue 12 --title "Fix issue 12" --description "Expla
 ```
 
 The CLI sends the repository URL and folder together with the completion payload. The server validates both against its vault before committing.
+
+For tokenless syncs, the CLI sends the same repository URL and folder to `/sync`, and the server uses the registered token from its vault.

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 
 const DEFAULT_RELAY_URL = "http://127.0.0.1:4317";
+const BACKLOG_DIR_NAME = ".backlog";
 
 async function main() {
   try {
@@ -28,9 +29,11 @@ async function main() {
 
     const repoRoot = await findGitRoot(options.cwd ?? process.cwd());
 
-    switch (options.command) {
+      switch (options.command) {
       case "sync": {
-        const result = await syncIssues(repoRoot, options);
+        const result = options.token
+          ? await syncIssues(repoRoot, options)
+          : await relaySync(repoRoot, options);
         renderIssueCollection(filterOpenIssues(result, options),options);
         return;
       }
@@ -322,7 +325,7 @@ async function readExistingBacklog(backlogPath) {
 }
 
 async function updateBacklogIssueState(repoRoot, issueNumber, state) {
-  const backlogPath = path.join(repoRoot, "backlog", "issues.json");
+  const backlogPath = path.join(repoRoot, BACKLOG_DIR_NAME, "issues.json");
   const backlog = await readExistingBacklog(backlogPath);
 
   if (!Array.isArray(backlog.issues) || backlog.issues.length === 0) {
@@ -475,7 +478,7 @@ async function syncIssues(repoRoot, options) {
   const remoteName = options.remote ?? "origin";
   const { repository, remoteUrl } = await resolveRepositoryContext(repoRoot, remoteName);
   const token = await requireGitHubToken(options, remoteUrl);
-  const backlogPath = path.join(repoRoot, "backlog", "issues.json");
+  const backlogPath = path.join(repoRoot, BACKLOG_DIR_NAME, "issues.json");
   const existingBacklog = await readExistingBacklog(backlogPath);
   const issues = await fetchOpenIssues(repository, token, repoRoot, existingBacklog);
   const result = {
@@ -585,7 +588,7 @@ async function closeRemoteIssue(repoRoot, options) {
 }
 
 async function ensureBacklog(repoRoot, options) {
-  const backlogPath = path.join(repoRoot, "backlog", "issues.json");
+  const backlogPath = path.join(repoRoot, BACKLOG_DIR_NAME, "issues.json");
   const backlog = await readExistingBacklog(backlogPath);
 
   if (Array.isArray(backlog.issues) && backlog.issues.length > 0) {
@@ -603,7 +606,7 @@ function findIssueByNumber(backlog, issueNumber) {
   const issue = (backlog.issues ?? []).find((entry) => entry.number === issueNumber);
 
   if (!issue) {
-    throw new Error(`Issue #${issueNumber} was not found in backlog/issues.json.`);
+    throw new Error(`Issue #${issueNumber} was not found in .backlog/issues.json.`);
   }
 
   return issue;
@@ -632,7 +635,7 @@ function filterOpenIssues(backlog, options = {}) {
 
 function renderIssueCollection(result, options) {
   if (options.output) {
-    console.log(`Saved ${result.issueCount} open issues to ${path.resolve(process.cwd(), options.output)}`);
+      console.log(`Saved ${result.issueCount} open issues to ${path.resolve(process.cwd(), options.output)}`);
     return;
   }
 
@@ -796,6 +799,38 @@ async function relayCompleted(repoRoot, options) {
     pushed: Boolean(body.pushed),
     remote: body.remote ?? remoteName
   };
+}
+
+async function relaySync(repoRoot, options) {
+  const remoteName = options.remote ?? "origin";
+  const { remoteUrl } = await resolveRepositoryContext(repoRoot, remoteName);
+  const relayTarget = new URL("/sync", ensureRelayBaseUrl(options.relayUrl));
+  const response = await fetch(relayTarget, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "github-issues-resolver-relay-client"
+    },
+    body: JSON.stringify({
+      remote: remoteName,
+      repositoryFolder: path.resolve(repoRoot),
+      repositoryUrl: normalizeRepositoryRemote(remoteUrl)
+    })
+  });
+  const body = await safeReadJson(response);
+
+  if (!response.ok) {
+    const message = body?.error ?? body?.message ?? `Relay sync failed with HTTP ${response.status}.`;
+    throw new Error(message);
+  }
+
+  if (options.output) {
+    const outputPath = path.resolve(process.cwd(), options.output);
+    await writeJsonFile(outputPath, body);
+  }
+
+  return body;
 }
 
 function ensureRelayBaseUrl(value) {
@@ -1471,7 +1506,7 @@ async function localizeIssueImages(description, issueNumber, token, repoRoot) {
   }
 
   let rewritten = description;
-  const issueImageDir = path.join(repoRoot, "backlog", "images", String(issueNumber));
+  const issueImageDir = path.join(repoRoot, BACKLOG_DIR_NAME, "images", String(issueNumber));
   await fs.mkdir(issueImageDir, { recursive: true });
 
   for (let index = 0; index < references.length; index += 1) {
@@ -1765,13 +1800,13 @@ async function safeReadJson(response) {
 function printHelp() {
   console.log(`github-issues-resolver
 
-Usage:
-  github-issues-resolver [command] [options]
+  Usage:
+    github-issues-resolver [command] [options]
 
   Commands:
-  sync                Download open issues and save backlog/issues.json.
-  list                Read and print issues from backlog/issues.json.
-  show                Print one issue from backlog/issues.json.
+  sync                Download open issues and save .backlog/issues.json. Falls back to the relay server when no token is provided.
+  list                Read and print issues from .backlog/issues.json.
+  show                Print one issue from .backlog/issues.json.
   start-issue         Create or switch to the branch for an issue.
   completed           Stage files, commit progress for an issue, and close it.
   report              Create a new issue on the remote repository.
