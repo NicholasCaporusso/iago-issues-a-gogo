@@ -1,0 +1,9 @@
+[package]
+name = "github-issues-resolver-shared"
+version = "0.1.0"
+edition = "2021"
+description = "Shared helpers for the GitHub issues resolver Rust workspace."
+
+[lib]
+name = "github_issues_resolver_shared"
+path = "src/lib.rs"

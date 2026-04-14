@@ -1,0 +1,8 @@
+[package]
+name = "issues-relay-server"
+version = "0.1.0"
+edition = "2021"
+description = "Rust relay server for the GitHub issues resolver workspace."
+
+[dependencies]
+github-issues-resolver-shared = { path = "../shared" }

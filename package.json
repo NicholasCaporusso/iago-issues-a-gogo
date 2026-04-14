@@ -13,10 +13,10 @@
     "AGENT.md"
   ],
   "scripts": {
-    "build:windows-exe": "node ./build/node/cli/build-windows-exe.mjs",
-    "build:windows-server-exe": "node ./build/node/server/build-windows-exe.mjs",
+    "build:windows-exe": "powershell -NoProfile -File ./build/rust/cli/build-windows-exe.ps1",
+    "build:windows-server-exe": "powershell -NoProfile -File ./build/rust/server/build-windows-exe.ps1",
     "start": "node ./src/node/cli/cli.js",
-    "test": "node --check ./src/node/cli/cli.js && node --check ./src/node/server/server.js && node --check ./src/node/shared/repository.js && node --check ./build/node/cli/build-windows-exe.mjs && node --check ./build/node/server/build-windows-exe.mjs"
+    "test": "node --check ./src/node/cli/cli.js && node --check ./src/node/server/server.js && node --check ./src/node/shared/repository.js && powershell -NoProfile -Command \"if (!(Test-Path './src/rust/Cargo.toml')) { exit 1 }; if (!(Test-Path './build/rust/cli/build-windows-exe.ps1')) { exit 1 }; if (!(Test-Path './build/rust/server/build-windows-exe.ps1')) { exit 1 }\""
   },
   "engines": {
     "node": ">=18"

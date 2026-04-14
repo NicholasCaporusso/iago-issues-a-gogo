@@ -1,0 +1,8 @@
+[package]
+name = "github-issues-resolver"
+version = "0.1.0"
+edition = "2021"
+description = "Rust CLI for the GitHub issues resolver workspace."
+
+[dependencies]
+github-issues-resolver-shared = { path = "../shared" }

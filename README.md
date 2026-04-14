@@ -4,15 +4,17 @@ This repository contains two related apps:
 - a CLI for syncing, listing, creating, and closing GitHub issues from a local git repository
 - a local relay server that can store repository tokens and handle issue completion when the CLI should not talk to GitHub directly
 
-The code has been reorganized around `src/node/` for source files and `build/node/` for Windows packaging scripts.
+The Rust workspace scaffold now lives in `src/rust/`, with Windows packaging helpers in `build/rust/`.
+The existing Node implementation remains in `src/node/` while the Rust translation is finished.
 
-## What’s in the repo
+## What's in the repo
 
-- CLI source: [`src/node/cli/cli.js`](/workspace/tools-github-issues-resolver/src/node/cli/cli.js)
-- Relay server source: [`src/node/server/server.js`](/workspace/tools-github-issues-resolver/src/node/server/server.js)
-- Shared Git/GitHub helpers: [`src/node/shared/repository.js`](/workspace/tools-github-issues-resolver/src/node/shared/repository.js)
-- CLI docs: [`src/node/cli/README.md`](/workspace/tools-github-issues-resolver/src/node/cli/README.md)
-- Relay server docs: [`src/node/server/README.md`](/workspace/tools-github-issues-resolver/src/node/server/README.md)
+- Rust workspace guide: [`src/rust/README.md`](/workspace/tools-github-issues-resolver/src/rust/README.md)
+- Rust shared crate: [`src/rust/shared/src/repository.rs`](/workspace/tools-github-issues-resolver/src/rust/shared/src/repository.rs)
+- Rust CLI entrypoint: [`src/rust/cli/src/main.rs`](/workspace/tools-github-issues-resolver/src/rust/cli/src/main.rs)
+- Rust relay server entrypoint: [`src/rust/server/src/main.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/main.rs)
+- Rust CLI build script: [`build/rust/cli/build-windows-exe.ps1`](/workspace/tools-github-issues-resolver/build/rust/cli/build-windows-exe.ps1)
+- Rust relay server build script: [`build/rust/server/build-windows-exe.ps1`](/workspace/tools-github-issues-resolver/build/rust/server/build-windows-exe.ps1)
 
 ## Requirements
 
@@ -31,6 +33,8 @@ npm install
 That installs the dev dependency used for Windows single-executable builds.
 
 ## Quick Start
+
+The Rust binaries are scaffolded but not yet feature-complete. The current Node implementation still provides the working behavior until the Rust translation is finished.
 
 ### 1. Sync issues into the current repository
 
@@ -144,8 +148,11 @@ If you run the server without a command, it defaults to `serve`.
 
 ### Vault storage
 
-The default vault file is:
+The current Node server uses:
 - [`src/node/server/vault/repos.json`](/workspace/tools-github-issues-resolver/src/node/server/vault/repos.json)
+
+The Rust scaffold uses:
+- [`src/rust/server/vault/repos.json`](/workspace/tools-github-issues-resolver/src/rust/server/vault/repos.json)
 
 You can override it with `--vault <path>`.
 
@@ -176,8 +183,8 @@ npm run build:windows-server-exe
 ```
 
 The resulting binaries are written to:
-- `dist/cli/github-issues-resolver.exe`
-- `dist/server/issues-relay-server.exe`
+- `dist/rust/cli/github-issues-resolver.exe`
+- `dist/rust/server/issues-relay-server.exe`
 
 ## Development
 
@@ -189,7 +196,7 @@ node ./src/node/cli/cli.js --help
 node ./src/node/server/server.js --help
 ```
 
-The CLI and server share implementation details through [`src/node/shared/repository.js`](/workspace/tools-github-issues-resolver/src/node/shared/repository.js).
+The CLI and server share implementation details through [`src/node/shared/repository.js`](/workspace/tools-github-issues-resolver/src/node/shared/repository.js), and the Rust workspace mirrors that structure in [`src/rust/shared/src/repository.rs`](/workspace/tools-github-issues-resolver/src/rust/shared/src/repository.rs).
 
 ## Troubleshooting
 
