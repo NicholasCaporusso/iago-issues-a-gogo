@@ -109,6 +109,9 @@ fn run() -> Result<(), String> {
         "set-port" => {
             set_port_command(&options)?;
         }
+        "about" => {
+            print_about();
+        }
         other => {
             return Err(format!("Unsupported command: {other}"));
         }
@@ -909,7 +912,9 @@ Commands:\n\
   create-issue        create-issue --title <text> [--description <text>] [--label bug|improvement|feature] [--cwd <path>] [--remote <name>] [--token <token>]\n\
                       Same as report.\n\
   set-port            set-port --port <number>\n\
-                      Update the shared relay config with a new server port.\n\n\
+                      Update the shared relay config with a new server port.\n\
+  about               about\n\
+                      Show project ownership and contact information.\n\n\
 Options:\n\
   --cwd <path>       Start searching for the git repository from this directory.\n\
   --remote <name>    Git remote to inspect. Defaults to \"origin\".\n\
@@ -936,4 +941,11 @@ Shared relay config:\n\
         relay_port
     );
     Ok(())
+}
+
+fn print_about() {
+    println!(
+        "IAGO (Issues A-GOgo) was developed by Nicholas Caporusso.\n\
+Send feedback, questions, comments and requests to info@cprnhl.com."
+    );
 }

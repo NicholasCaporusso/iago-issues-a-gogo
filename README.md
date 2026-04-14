@@ -117,6 +117,7 @@ The `iago` CLI is the main working surface for repository-level issue management
 - `report`: Create a new issue on the remote repository.
 - `create-issue`: Same as `report`.
 - `set-port`: Update the shared relay config with a new server port.
+- `about`: Show project ownership and contact information.
 
 ### Common Options
 
@@ -165,6 +166,7 @@ The `iago-server` binary is the local companion process.
 - `repl`: Open the relay REPL.
 - `add`: Register a repository in the relay vault.
 - `set-port`: Update the shared relay config with a new server port.
+- `about`: Show project ownership and contact information.
 - `client help`: Show the `iago` client command reference.
 
 If you run the server without a command, it defaults to `repl`.
@@ -202,6 +204,7 @@ Inside the relay REPL:
 - `add`: Add or update a repository in the vault
 - `list`: Show stored repository entries
 - `set-port`: Update the shared relay config with a new server port
+- `about`: Show project ownership and contact information
 - `client help`: Show the `iago` client command reference
 - `help`: Show REPL help
 - `quit`: Exit the REPL
@@ -211,7 +214,7 @@ Inside the relay REPL:
 
 On Windows, `iago-server`:
 
-- embeds [`iago-icon.ico`](/workspace/tools-github-issues-resolver/iago-icon.ico) into the executable
+- embeds [`assets/iago-icon.ico`](/workspace/tools-github-issues-resolver/assets/iago-icon.ico) into the executable
 - keeps running if you close the console window
 - hides the console when you click `X`
 
@@ -224,7 +227,7 @@ The installer:
 - installs both `iago.exe` and `iago-server.exe`
 - adds the client directory to system `PATH`
 - can register `iago-server` to start when the computer starts
-- uses [`iago-icon.ico`](/workspace/tools-github-issues-resolver/iago-icon.ico) for the installer and app icons
+- uses [`assets/iago-icon.ico`](/workspace/tools-github-issues-resolver/assets/iago-icon.ico) for the installer and app icons
 
 Build it with:
 

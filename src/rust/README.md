@@ -46,6 +46,7 @@ The Rust CLI implements the local workflow:
 - `report`
 - `create-issue`
 - `set-port`
+- `about`
 
 The CLI talks to GitHub directly when you supply a token. It also reads and updates the shared relay port from `relay-config.json` in the shared app folder above the executable.
 
@@ -55,7 +56,7 @@ The Rust `iago-server` keeps the process alive in both `serve` and `repl` mode u
 
 On Windows, the server hides the console when you click `X` and keeps running in the background.
 
-The REPL accepts `list`, `add`, and `set-port`.
+The REPL accepts `list`, `add`, `set-port`, and `about`.
 It also accepts `client help` to show the client command reference.
 
 `iago-server` reads `relay-config.json` in the shared app folder above the executable. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
@@ -67,7 +68,7 @@ Existing plaintext vault entries remain readable and are converted when the vaul
 
 ## Windows Icons
 
-Both Windows executables embed [`iago-icon.ico`](/workspace/tools-github-issues-resolver/iago-icon.ico).
+Both Windows executables embed [`assets/iago-icon.ico`](/workspace/tools-github-issues-resolver/assets/iago-icon.ico).
 
 ## Installer
 

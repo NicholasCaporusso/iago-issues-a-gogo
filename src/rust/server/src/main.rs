@@ -100,6 +100,9 @@ fn run() -> Result<(), String> {
             let options = parse_server_options(&remaining_args, relay_port)?;
             set_port_command(&options)?;
         }
+        "about" => {
+            print_about();
+        }
         "client" if remaining_args.first().map(|value| value.as_str()) == Some("help") => {
             print_client_help();
         }
@@ -471,6 +474,7 @@ fn run_repl_loop(
             "client" if command_args.first().map(|value| value.as_str()) == Some("help") => {
                 print_client_help();
             }
+            "about" => print_about(),
             "list" => print_vault_entries(vault_path)?,
             "add" => {
                 let options = parse_add_repo_options(&command_args, vault_path.to_path_buf(), true)?;
@@ -1077,6 +1081,9 @@ Shared relay config:"
     println!("  Default port: {}", default_port);
     println!("Default vault:");
     println!("  {}", vault_path.display());
+    println!("about:");
+    println!("  IAGO (Issues A-GOgo) was developed by Nicholas Caporusso.");
+    println!("  Send feedback, questions, comments and requests to info@cprnhl.com.");
 }
 
 fn print_client_help() {
@@ -1105,6 +1112,7 @@ Authentication:\n\
   GITHUB_TOKEN\n\
   GH_TOKEN\n"
     );
+    println!("  about        Show project ownership and contact information.");
 }
 
 fn print_help(default_port: u16) -> Result<(), String> {
@@ -1127,5 +1135,13 @@ Shared relay config:"
     println!("  Default port: {}", default_port);
     println!("Default vault:");
     println!("  {}", vault_path.display());
+    println!("about:");
+    println!("  IAGO (Issues A-GOgo) was developed by Nicholas Caporusso.");
+    println!("  Send feedback, questions, comments and requests to info@cprnhl.com.");
     Ok(())
+}
+
+fn print_about() {
+    println!("IAGO (Issues A-GOgo) was developed by Nicholas Caporusso.");
+    println!("Send feedback, questions, comments and requests to info@cprnhl.com.");
 }

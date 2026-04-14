@@ -3,7 +3,7 @@ AppId=IAGO
 AppName=IAGO
 AppVersion=1.0.0
 AppVerName=IAGO
-AppPublisher=IAGO
+AppPublisher=Nicholas Caporusso (info@cprnhl.com)
 DefaultDirName={autopf}\IAGO
 DefaultGroupName=IAGO
 OutputDir=..\..\..\dist\windows\installer
@@ -14,7 +14,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 ChangesEnvironment=yes
-SetupIconFile=..\..\..\iago-icon.ico
+SetupIconFile=..\..\..\assets\iago-icon.ico
 UninstallDisplayIcon={app}\bin\iago-server.exe
 DisableProgramGroupPage=yes
 
@@ -25,7 +25,7 @@ Name: "startup"; Description: "Run IAGO server at startup"; GroupDescription: "O
 Source: "..\..\..\dist\rust\cli\iago.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "..\..\..\dist\rust\server\iago-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "..\..\..\relay-config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
-Source: "..\..\..\iago-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\..\assets\iago-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}\bin"; Check: NeedsPathUpdate
