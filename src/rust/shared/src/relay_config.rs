@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 pub const DEFAULT_RELAY_PORT: u16 = 4317;
 pub const RELAY_CONFIG_FILE_NAME: &str = "relay-config.json";
+pub const IAGO_DATA_DIR_NAME: &str = "IAGO";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,22 +26,33 @@ fn default_relay_port_value() -> u16 {
     DEFAULT_RELAY_PORT
 }
 
-pub fn workspace_root() -> Result<PathBuf, String> {
-    if let Ok(current_exe) = env::current_exe() {
-        if let Some(parent) = current_exe.parent().and_then(Path::parent) {
-            return Ok(parent.to_path_buf());
-        }
+pub fn shared_data_root() -> Result<PathBuf, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let local_app_data = env::var_os("LOCALAPPDATA")
+            .or_else(|| env::var_os("APPDATA"))
+            .ok_or_else(|| "Could not determine the local application data directory.".to_owned())?;
+        return Ok(PathBuf::from(local_app_data).join(IAGO_DATA_DIR_NAME));
     }
 
-    let current_dir = env::current_dir().map_err(|error| format!("Failed to read current directory: {error}"))?;
-    current_dir
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "Could not determine a shared config directory.".to_owned())
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(current_exe) = env::current_exe() {
+            if let Some(parent) = current_exe.parent().and_then(Path::parent) {
+                return Ok(parent.to_path_buf());
+            }
+        }
+
+        let current_dir = env::current_dir().map_err(|error| format!("Failed to read current directory: {error}"))?;
+        current_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "Could not determine a shared config directory.".to_owned())
+    }
 }
 
 pub fn relay_config_path() -> Result<PathBuf, String> {
-    Ok(workspace_root()?.join(RELAY_CONFIG_FILE_NAME))
+    Ok(shared_data_root()?.join(RELAY_CONFIG_FILE_NAME))
 }
 
 pub fn read_relay_config() -> Result<RelayConfig, String> {

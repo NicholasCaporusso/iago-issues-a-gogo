@@ -1,10 +1,6 @@
-# Issues A GOgo - a console utility for UI-based coding agents
-<img src="https://github.com/NicholasCaporusso/iago-issues-a-gogo/blob/main/assets/iago-logo.png?raw=true" width="300" />
+# IAGO
 
-
-Use with Claude, Codex, and any other agent running in a sandbox to direct and track development using GitHub issues.
-
-**To understand what I mean, read [AGENT.md](./AGENT.md).**
+IAGO stands for Issues A GOgo.
 
 This repository contains two Windows-ready Rust applications:
 
@@ -179,10 +175,10 @@ If you run the server without a command, it defaults to `repl`.
 
 The client and server both read:
 
-- `relay-config.json` in the shared app folder above the executables
+- `relay-config.json` in the shared app data folder for IAGO
 
 That file stores the current relay port. If you run `set-port`, both apps use the new port the next time they read the config.
-When you install IAGO, the file lives alongside the shared app folder that contains the `bin` directory.
+On Windows, the installed app uses `%LOCALAPPDATA%\IAGO\relay-config.json` so the client and server can both write it without admin rights.
 
 ### Default Network Settings
 
@@ -193,7 +189,9 @@ When you install IAGO, the file lives alongside the shared app folder that conta
 
 The Rust server stores its vault data in:
 
-- `vault.json` in the shared app folder above the executables
+- `vault.json` in the shared app data folder for IAGO
+
+On Windows, the installed app uses `%LOCALAPPDATA%\IAGO\vault.json`.
 
 Repository tokens in that vault are encrypted at rest with the compiled master key from
 [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
@@ -255,6 +253,6 @@ The CLI and server share implementation details through [`src/rust/shared/src/re
 
 - If `sync` or `create-issue` fails with an authentication error, pass `--token` or set `GITHUB_TOKEN` / `GH_TOKEN`.
 - If the relay port is already in use, stop the old server or choose a different `--port` and update `relay-config.json` with `set-port`.
-- If `iago-server` says it cannot find the workspace root, make sure you are using the current build. The server now reads `relay-config.json` beside the executable instead of looking for `package.json` or `AGENT.md`.
+- If `iago-server` says it cannot find the shared config directory, make sure `%LOCALAPPDATA%` is available and writable for your user.
 - If the installer build fails, check that Inno Setup is installed and `iscc.exe` is available on `PATH`.
 - If you are looking for the old file-based token lookup, it has been removed intentionally.

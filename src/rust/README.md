@@ -48,7 +48,7 @@ The Rust CLI implements the local workflow:
 - `set-port`
 - `about`
 
-The CLI talks to GitHub directly when you supply a token. It also reads and updates the shared relay port from `relay-config.json` in the shared app folder above the executable.
+The CLI talks to GitHub directly when you supply a token. It also reads and updates the shared relay port from `relay-config.json` in the shared app data folder for IAGO.
 
 ## Server Behavior
 
@@ -59,11 +59,11 @@ On Windows, the server hides the console when you click `X` and keeps running in
 The REPL accepts `list`, `add`, `set-port`, and `about`.
 It also accepts `client help` to show the client command reference.
 
-`iago-server` reads `relay-config.json` in the shared app folder above the executable. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
+`iago-server` reads `relay-config.json` in the shared app data folder for IAGO. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
 
 Launching `iago-server.exe` without arguments opens the REPL.
 
-Vault tokens are encrypted at rest in `vault.json` in the shared app folder above the executables using the compiled master key in [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
+Vault tokens are encrypted at rest in `vault.json` in the shared app data folder for IAGO using the compiled master key in [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
 Existing plaintext vault entries remain readable and are converted when the vault is saved again.
 
 ## Windows Icons
@@ -77,7 +77,7 @@ The Windows installer:
 - installs both executables
 - adds the `iago` client directory to system `PATH`
 - can register `iago-server` to start when the computer starts
-- installs `relay-config.json` in the shared app folder so both apps share the same port setting
+- installs `relay-config.json` and `vault.json` in `%LOCALAPPDATA%\IAGO` so both apps share the same writable config and vault files
 
 ## Status
 

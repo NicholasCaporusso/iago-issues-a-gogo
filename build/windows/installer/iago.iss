@@ -24,7 +24,7 @@ Name: "startup"; Description: "Run IAGO server at startup"; GroupDescription: "O
 [Files]
 Source: "..\..\..\dist\rust\cli\iago.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "..\..\..\dist\rust\server\iago-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-Source: "..\..\..\relay-config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: "..\..\..\relay-config.json"; DestDir: "{localappdata}\IAGO"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\..\..\assets\iago-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
