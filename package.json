@@ -4,8 +4,8 @@
   "description": "CLI to read a git remote and fetch open GitHub issues.",
   "type": "module",
   "bin": {
-    "github-issues-resolver": "./src/cli/cli.js",
-    "issues-relay-server": "./src/server/server.js"
+    "github-issues-resolver": "./src/node/cli/cli.js",
+    "issues-relay-server": "./src/node/server/server.js"
   },
   "files": [
     "src",
@@ -13,10 +13,10 @@
     "AGENT.md"
   ],
   "scripts": {
-    "build:windows-exe": "node ./build/cli/build-windows-exe.mjs",
-    "build:windows-server-exe": "node ./build/server/build-windows-exe.mjs",
-    "start": "node ./src/cli/cli.js",
-    "test": "node --check ./src/cli/cli.js && node --check ./src/server/server.js && node --check ./src/shared/repository.js && node --check ./build/cli/build-windows-exe.mjs && node --check ./build/server/build-windows-exe.mjs"
+    "build:windows-exe": "node ./build/node/cli/build-windows-exe.mjs",
+    "build:windows-server-exe": "node ./build/node/server/build-windows-exe.mjs",
+    "start": "node ./src/node/cli/cli.js",
+    "test": "node --check ./src/node/cli/cli.js && node --check ./src/node/server/server.js && node --check ./src/node/shared/repository.js && node --check ./build/node/cli/build-windows-exe.mjs && node --check ./build/node/server/build-windows-exe.mjs"
   },
   "engines": {
     "node": ">=18"
