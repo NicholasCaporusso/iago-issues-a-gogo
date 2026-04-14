@@ -1,186 +1,199 @@
 # GitHub Issues Resolver
 
-`tools-github-issues-resolver` is a Node.js CLI for syncing GitHub issues into a local backlog, reviewing them from the terminal, and recording issue completion back to the remote repository.
+This repository contains two related apps:
+- a CLI for syncing, listing, creating, and closing GitHub issues from a local git repository
+- a local relay server that can store repository tokens and handle issue completion when the CLI should not talk to GitHub directly
 
-The tool is designed to run inside a Git repository. It discovers the repository root, reads the configured Git remote, talks to the GitHub Issues API, and stores a local cache in `.backlog/issues.json`.
+The code has been reorganized around `src/` for source files and `build/` for Windows packaging scripts.
 
-## Features
+## What’s in the repo
 
-- Sync open GitHub issues into a local backlog file, using the relay server when no local token is provided
-- List cached issues from the backlog
-- Show the full details for a single issue
-- Create or switch to an issue branch
-- Commit work for an issue and close the matching remote issue
-- Create new GitHub issues from the CLI
-- Download remote issue images into `.backlog/images/<issue-number>/` and rewrite issue bodies to point to the local files
+- CLI source: [`src/cli/cli.js`](/workspace/tools-github-issues-resolver/src/cli/cli.js)
+- Relay server source: [`src/server/server.js`](/workspace/tools-github-issues-resolver/src/server/server.js)
+- Shared Git/GitHub helpers: [`src/shared/repository.js`](/workspace/tools-github-issues-resolver/src/shared/repository.js)
+- CLI docs: [`src/cli/README.md`](/workspace/tools-github-issues-resolver/src/cli/README.md)
+- Relay server docs: [`src/server/README.md`](/workspace/tools-github-issues-resolver/src/server/README.md)
 
 ## Requirements
 
 - Node.js 18 or newer
-- A Git repository with a configured GitHub remote
-- A GitHub token supplied with `--token`, `GITHUB_TOKEN`, `GH_TOKEN`, or `lookup.tsv`
+- Git installed and available on `PATH`
+- A GitHub token when you want to talk to GitHub directly
 
-## Installation
+## Install
 
-Install dependencies if you add any later, then run the CLI directly with Node:
-
-```bash
-node ./cli/cli.js --help
-```
-
-The package metadata also defines a global executable name, so installing the package exposes `github-issues-resolver` from any folder:
+From the repository root:
 
 ```bash
-github-issues-resolver --help
+npm install
 ```
 
-For a distributable Windows binary, run:
+That installs the dev dependency used for Windows single-executable builds.
+
+## Quick Start
+
+### 1. Sync issues into the current repository
+
+```bash
+node ./src/cli/cli.js sync --token <github-token>
+```
+
+This writes the issue backlog to `.backlog/issues.json` in the repository you run it against.
+
+### 2. List the local backlog
+
+```bash
+node ./src/cli/cli.js list
+```
+
+### 3. Start work on an issue branch
+
+```bash
+node ./src/cli/cli.js start-issue --issue 42
+```
+
+### 4. Finish an issue
+
+```bash
+node ./src/cli/cli.js completed --issue 42 --files src/app.js --title "Fix the bug" --token <github-token>
+```
+
+### 5. Use the relay server instead of a direct token
+
+Start the relay server:
+
+```bash
+node ./src/server/server.js serve
+```
+
+Then run the CLI without a direct token:
+
+```bash
+node ./src/cli/cli.js sync
+node ./src/cli/cli.js completed --issue 42 --relay
+```
+
+## CLI Guide
+
+The CLI is the main working surface for repository-level issue management.
+
+### Commands
+
+- `sync`: Download open GitHub issues and store them locally in `.backlog/issues.json`.
+- `list`: Print issues from the local backlog file.
+- `show`: Print a single issue from the local backlog file.
+- `start-issue`: Create or switch to the branch for an issue.
+- `completed`: Stage files, commit the work, and close the issue.
+- `report`: Create a new issue on the remote repository.
+- `create-issue`: Same as `report`.
+
+### Common options
+
+- `--cwd <path>`: Start searching for the git repository from this directory.
+- `--remote <name>`: Git remote to inspect. Defaults to `origin`.
+- `--token <token>`: GitHub token.
+- `--issue <number>`: Issue number for `show`, `start-issue`, or `completed`.
+- `--title <text>`: Issue title or commit title.
+- `--description <text>`: Issue description or commit body.
+- `--label <name>`: Issue label for `report` and `create-issue`. Allowed values: `bug`, `improvement`, `feature`.
+- `--files <paths>`: Files to stage for `completed`.
+- `--push`: Push after `completed`.
+- `--save`: Ask the relay flow to push after `completed`.
+- `--branch <name>`: Push target branch for `completed`.
+- `--relay`: Send `completed` to the local relay server instead of committing directly.
+- `--relay-url <url>`: Relay server base URL. Defaults to `http://127.0.0.1:4317`.
+- `--json`: Print the full result as JSON.
+- `--output <path>`: Save the full result as JSON to a file.
+- `--all`: Include improvement and feature issues in list output.
+
+### Authentication
+
+The CLI no longer supports `lookup.tsv`.
+
+Use one of these instead:
+- `--token <token>`
+- `GITHUB_TOKEN`
+- `GH_TOKEN`
+
+If you use `sync` or `completed --relay` without a token, the CLI can fall back to the relay server.
+
+### Backlog files
+
+The CLI writes generated state into the repository it is operating on:
+- `.backlog/issues.json`
+- `.backlog/images/<issue-number>/...`
+
+These files are created at runtime and belong to the target repository, not this tool repository.
+
+## Relay Server Guide
+
+The relay server is for local coordination and token storage.
+
+### Commands
+
+- `serve`: Start the HTTP listener and open the REPL in the same process.
+- `repl`: Open the relay vault REPL without starting the HTTP listener.
+- `add-repo`: Add or update a repository entry in the relay vault.
+
+If you run the server without a command, it defaults to `serve`.
+
+### Default network settings
+
+- Host: `127.0.0.1`
+- Port: `4317`
+
+### Vault storage
+
+The default vault file is:
+- [`src/server/vault/repos.json`](/workspace/tools-github-issues-resolver/src/server/vault/repos.json)
+
+You can override it with `--vault <path>`.
+
+Tokens stored in the vault are encrypted before being written to disk.
+
+### REPL commands
+
+Inside the relay REPL:
+- `add`: Add or update a repository in the vault
+- `list`: Show stored repository entries
+- `help`: Show REPL help
+- `quit`: Exit the REPL
+
+### HTTP endpoints
+
+The relay server exposes:
+- `GET /health`
+- `POST /sync`
+- `POST /completed`
+
+## Build Windows executables
+
+The repo includes packaging scripts for Windows single-executable builds.
 
 ```bash
 npm run build:windows-exe
+npm run build:windows-server-exe
 ```
 
-That writes `dist/release/github-issues-resolver.exe` and the companion `lookup.tsv` file.
+The resulting binaries are written to:
+- `dist/cli/github-issues-resolver.exe`
+- `dist/server/issues-relay-server.exe`
 
-The same global install also exposes the relay server as `issues-relay-server`:
+## Development
+
+Useful checks from the repo root:
 
 ```bash
-issues-relay-server --help
+npm test
+node ./src/cli/cli.js --help
+node ./src/server/server.js --help
 ```
 
-## Authentication
+The CLI and server share implementation details through [`src/shared/repository.js`](/workspace/tools-github-issues-resolver/src/shared/repository.js).
 
-Commands that talk to GitHub require a token. The CLI checks for credentials in this order:
+## Troubleshooting
 
-1. `--token <token>`
-2. `GITHUB_TOKEN`
-3. `GH_TOKEN`
-4. `lookup.tsv`
-
-`lookup.tsv` should contain one repository per line in tab-separated format:
-
-```tsv
-https://github.com/owner/repo.git    ghp_exampleToken
-```
-
-## Backlog Layout
-
-After a successful sync, the CLI writes:
-
-- `.backlog/issues.json`: cached issue metadata and descriptions
-- `.backlog/images/<issue-number>/`: downloaded images referenced by issue descriptions
-
-If an issue body contains Markdown or HTML image tags that point to remote URLs, those files are downloaded locally and the issue description stored in the backlog is rewritten to use the local relative paths.
-
-## Usage
-
-```bash
-node ./cli/cli.js [command] [options]
-```
-
-## Commands
-
-### `sync`
-
-Downloads open issues from the configured GitHub remote and saves them to `.backlog/issues.json`. If the CLI does not have a token, it sends the sync request to the relay server instead.
-
-```bash
-node ./cli/cli.js sync
-node ./cli/cli.js sync --remote upstream
-node ./cli/cli.js sync --output tmp/issues.json --json
-```
-
-### `list`
-
-Reads the backlog and prints the active issue list. By default, only open issues with no labels or the `bug` label are shown. Use `--all` to include `improvement` and `feature` issues too.
-
-```bash
-node ./cli/cli.js list
-node ./cli/cli.js list --all
-```
-
-### `show`
-
-Prints the full details for a single issue from `.backlog/issues.json`.
-
-```bash
-node ./cli/cli.js show --issue 12
-node ./cli/cli.js show --issue 12 --json
-```
-
-### `start-issue`
-
-Creates or switches to the Git branch for an issue. Branches use the format `issue/<number>`.
-
-```bash
-node ./cli/cli.js start-issue --issue 12
-```
-
-### `mark-done`
-
-Stages changes, creates a Git commit, and closes the remote issue.
-
-If `--files` is omitted, the command stages all changes with `git add .`.
-
-```bash
-node ./cli/cli.js mark-done --issue 12 --title "Add README" --description "Document setup and command usage"
-node ./cli/cli.js mark-done --issue 12 --description "Fix parser edge case" --files cli/cli.js README.md
-node ./cli/cli.js mark-done --issue 12 --title "Fix issue 12" --description "Patch and tests" --push --branch issue/12
-```
-
-When both `--title` and `--description` are present, the commit message uses the title as the subject and the description as the body:
-
-```text
-fix(issue): close #12 - Add README
-
-Document setup and command usage
-```
-
-### `create-issue`
-
-Creates a new GitHub issue on the configured remote repository.
-
-```bash
-node ./cli/cli.js create-issue --title "Add tests" --description "Cover sync and list flows"
-node ./cli/cli.js create-issue --title "Improve docs" --description "Document token lookup" --label improvement
-```
-
-Supported labels are:
-
-- `bug`
-- `improvement`
-- `feature`
-
-## Options
-
-- `--cwd <path>`: Start searching for the Git repository from this directory
-- `--remote <name>`: Use a different Git remote instead of `origin`
-- `--token <token>`: Provide a GitHub token directly
-- `--all`: Include `improvement` and `feature` issues in `list` output
-- `--issue <number>`: Issue number for `show`, `start-issue`, or `mark-done`
-- `--title <text>`: Title for `create-issue`, or the commit subject for `mark-done`
-- `--description <text>`: Description for `create-issue`, or commit text for `mark-done`
-- `--label <name>`: Issue label for `create-issue`; supported values are `bug`, `improvement`, and `feature`
-- `--files <paths>`: Explicit file list to stage during `mark-done`
-- `--push`: Push after `mark-done`
-- `--branch <name>`: Push target branch for `mark-done`
-- `--json`: Print JSON output
-- `--output <path>`: Save JSON output to a file
-- `--help`, `-h`: Show the help text
-
-## Typical Workflow
-
-```bash
-node ./cli/cli.js sync
-node ./cli/cli.js list
-node ./cli/cli.js show --issue 12
-node ./cli/cli.js start-issue --issue 12
-# edit files
-node ./cli/cli.js mark-done --issue 12 --title "Fix issue 12" --description "Explain the change here"
-```
-
-## Notes
-
-- The CLI looks for `.git` in the current directory and its parents, so it can be run from subdirectories inside a repository.
-- For GitHub Enterprise remotes, API requests are sent to `https://<host>/api/v3`.
-- `show` and `list` use the local backlog cache. Run `sync` first if you want the latest remote state.
+- If `sync` fails with an authentication error, pass `--token` or set `GITHUB_TOKEN` / `GH_TOKEN`.
+- If the relay server says a repository is not registered, add it with `node ./src/server/server.js add-repo ...`.
+- If port `4317` is already in use, stop the old relay server or choose a different `--port`.
+- If you are looking for the old file-based token lookup, it has been removed intentionally.

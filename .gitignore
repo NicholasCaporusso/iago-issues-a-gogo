@@ -1,3 +1,2 @@
-lookup.tsv
-relay-server/vault/*.json
-.backlog/
+node_modules
+**/repos.json

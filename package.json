@@ -4,20 +4,19 @@
   "description": "CLI to read a git remote and fetch open GitHub issues.",
   "type": "module",
   "bin": {
-    "github-issues-resolver": "./cli/cli.js",
-    "issues-relay-server": "./server/server.js"
+    "github-issues-resolver": "./src/cli/cli.js",
+    "issues-relay-server": "./src/server/server.js"
   },
   "files": [
-    "cli/cli.js",
-    "server",
-    "user_guide.md",
-    "AGENT.md",
-    "README.md"
+    "src",
+    "build",
+    "AGENT.md"
   ],
   "scripts": {
-    "build:windows-exe": "node ./scripts/build-windows-exe.mjs",
-    "start": "node ./cli/cli.js",
-    "test": "node ./test/index.test.js"
+    "build:windows-exe": "node ./build/cli/build-windows-exe.mjs",
+    "build:windows-server-exe": "node ./build/server/build-windows-exe.mjs",
+    "start": "node ./src/cli/cli.js",
+    "test": "node --check ./src/cli/cli.js && node --check ./src/server/server.js && node --check ./src/shared/repository.js && node --check ./build/cli/build-windows-exe.mjs && node --check ./build/server/build-windows-exe.mjs"
   },
   "engines": {
     "node": ">=18"
