@@ -189,7 +189,7 @@ When you install IAGO, the file lives alongside the shared app folder that conta
 
 The Rust server stores its vault data in:
 
-- [`src/rust/server/vault/repos.json`](/workspace/tools-github-issues-resolver/src/rust/server/vault/repos.json)
+- `vault.json` in the shared app folder above the executables
 
 Repository tokens in that vault are encrypted at rest with the compiled master key from
 [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).

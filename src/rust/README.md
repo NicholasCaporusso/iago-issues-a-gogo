@@ -63,7 +63,7 @@ It also accepts `client help` to show the client command reference.
 
 Launching `iago-server.exe` without arguments opens the REPL.
 
-Vault tokens are encrypted at rest in `src/rust/server/vault/repos.json` using the compiled master key in [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
+Vault tokens are encrypted at rest in `vault.json` in the shared app folder above the executables using the compiled master key in [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
 Existing plaintext vault entries remain readable and are converted when the vault is saved again.
 
 ## Windows Icons

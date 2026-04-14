@@ -913,8 +913,7 @@ Commands:\n\
                       Same as report.\n\
   set-port            set-port --port <number>\n\
                       Update the shared relay config with a new server port.\n\
-  about               about\n\
-                      Show project ownership and contact information.\n\n\
+  about               ---Developed by Nicholas Caporusso (info@cprnhl.com)\n\n\
 Options:\n\
   --cwd <path>       Start searching for the git repository from this directory.\n\
   --remote <name>    Git remote to inspect. Defaults to \"origin\".\n\

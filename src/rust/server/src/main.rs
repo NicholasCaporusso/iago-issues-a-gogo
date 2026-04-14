@@ -297,9 +297,12 @@ fn parse_port(value: &str) -> Result<u16, String> {
 }
 
 fn default_vault_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("vault")
-        .join("repos.json")
+    relay_config_path()
+        .map(|path| path.with_file_name("vault.json"))
+        .unwrap_or_else(|_| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("vault.json")
+        })
 }
 
 impl RelayServerHandle {
@@ -1081,9 +1084,7 @@ Shared relay config:"
     println!("  Default port: {}", default_port);
     println!("Default vault:");
     println!("  {}", vault_path.display());
-    println!("about:");
-    println!("  IAGO (Issues A-GOgo) was developed by Nicholas Caporusso.");
-    println!("  Send feedback, questions, comments and requests to info@cprnhl.com.");
+    println!("---Developed by Nicholas Caporusso (info@cprnhl.com)");
 }
 
 fn print_client_help() {
@@ -1112,7 +1113,7 @@ Authentication:\n\
   GITHUB_TOKEN\n\
   GH_TOKEN\n"
     );
-    println!("  about        Show project ownership and contact information.");
+    println!("  about        ---Developed by Nicholas Caporusso (info@cprnhl.com)");
 }
 
 fn print_help(default_port: u16) -> Result<(), String> {
@@ -1135,9 +1136,7 @@ Shared relay config:"
     println!("  Default port: {}", default_port);
     println!("Default vault:");
     println!("  {}", vault_path.display());
-    println!("about:");
-    println!("  IAGO (Issues A-GOgo) was developed by Nicholas Caporusso.");
-    println!("  Send feedback, questions, comments and requests to info@cprnhl.com.");
+    println!("---Developed by Nicholas Caporusso (info@cprnhl.com)");
     Ok(())
 }
 
