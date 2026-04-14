@@ -36,12 +36,19 @@ The Rust CLI now implements the main local workflow:
 - `completed`
 - `report`
 - `create-issue`
+- `set-port`
 
-The CLI talks to GitHub directly when you supply a token.
+The CLI talks to GitHub directly when you supply a token. It also reads and updates the shared relay port from `relay-config.json` at the workspace root.
 
 ## Server behavior
 
-The Rust relay server currently keeps the process alive in both `serve` and `repl` mode until you type `quit`, `exit`, or send EOF. The REPL accepts `list` and `add`.
+The Rust relay server keeps the process alive in both `serve` and `repl` mode until you type `quit`, `exit`, or send EOF. The REPL accepts `list`, `add`, and `set-port`.
+
+The relay server also reads `relay-config.json` at the workspace root. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
+
+Vault tokens are encrypted at rest in `src/rust/server/vault/repos.json` using the compiled master key in
+[`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
+Existing plaintext vault entries remain readable and are converted when the vault is saved again.
 
 ## Status
 

@@ -88,6 +88,7 @@ The CLI is the main working surface for repository-level issue management.
 - `completed`: Stage files, commit the work, and close the issue.
 - `report`: Create a new issue on the remote repository.
 - `create-issue`: Same as `report`.
+- `set-port`: Update the shared relay config with a new server port.
 
 ### Common options
 
@@ -105,7 +106,8 @@ The CLI is the main working surface for repository-level issue management.
 - `--output <path>`: Save the full result as JSON to a file.
 - `--all`: Include improvement and feature issues in list output.
 - `--relay`: Reserved for relay-based completion flows; the Rust CLI currently keeps direct GitHub mode as the primary path.
-- `--relay-url <url>`: Relay server base URL.
+- `--relay-url <url>`: Relay server base URL. Defaults to the shared relay config.
+- `--port <number>`: Update the shared relay config when using `set-port`.
 
 ### Authentication
 
@@ -132,18 +134,30 @@ The relay server is the local companion process.
 - `serve`: Start the listener and keep the process alive.
 - `repl`: Open the relay REPL without the listener.
 - `add`: Register a repository in the relay vault.
+- `set-port`: Update the shared relay config with a new server port.
 
 If you run the server without a command, it defaults to `serve`.
+
+### Shared relay config
+
+The client and server both read:
+- [`relay-config.json`](/workspace/tools-github-issues-resolver/relay-config.json)
+
+That file stores the current relay port. If you run `set-port`, both apps will use the new port the next time they read the config.
 
 ### Default network settings
 
 - Host: `127.0.0.1`
-- Port: `4317`
+- Port: read from `relay-config.json`
 
 ### Vault storage
 
 The Rust server stores its vault data in:
 - [`src/rust/server/vault/repos.json`](/workspace/tools-github-issues-resolver/src/rust/server/vault/repos.json)
+
+Repository tokens in that vault are encrypted at rest with the compiled master key from
+[`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
+Older plaintext entries are still readable and are re-written encrypted the next time the vault is saved.
 
 You can override it with `--vault <path>`.
 
@@ -183,5 +197,5 @@ The CLI and server share implementation details through [`src/rust/shared/src/re
 ## Troubleshooting
 
 - If `sync` or `create-issue` fails with an authentication error, pass `--token` or set `GITHUB_TOKEN` / `GH_TOKEN`.
-- If port `4317` is already in use, stop the old relay server or choose a different `--port`.
+- If the relay port is already in use, stop the old relay server or choose a different `--port` and update `relay-config.json` with `set-port`.
 - If you are looking for the old file-based token lookup, it has been removed intentionally.

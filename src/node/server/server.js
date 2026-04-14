@@ -15,9 +15,14 @@ import {
   normalizeRepositoryRemote,
   syncIssues
 } from "../shared/repository.js";
+import {
+  DEFAULT_RELAY_PORT,
+  readRelayConfig,
+  relayUrlForPort,
+  setRelayPort
+} from "../shared/relay-config.js";
 
 const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_PORT = 4317;
 const DEFAULT_VAULT_PATH = path.join(getServerDir(), "vault", "repos.json");
 const VAULT_SECRET = crypto.createHash("sha256").update("tools-github-issues-resolver:relay-vault:v1").digest();
 const VAULT_TOKEN_PREFIX = "enc";
@@ -25,20 +30,29 @@ const VAULT_TOKEN_VERSION = "v1";
 
 async function main() {
   try {
-    const options = parseArgs(process.argv.slice(2));
+    const relayConfig = await readRelayConfig();
+    const options = parseArgs(process.argv.slice(2), relayConfig.relayPort);
+
+    if (options.help) {
+      printHelp(relayConfig);
+      return;
+    }
 
     switch (options.command) {
       case "serve":
-        await serveRelay(options);
+        await serveRelay(options, relayConfig);
         return;
       case "repl":
-        await startVaultRepl(options);
+        await startVaultRepl(options, relayConfig);
         return;
       case "add":
         await addRepoCommand(options);
         return;
+      case "set-port":
+        await setPortCommand(options);
+        return;
       default:
-        printHelp();
+        printHelp(relayConfig);
     }
   } catch (error) {
     console.error(error.message);
@@ -46,12 +60,12 @@ async function main() {
   }
 }
 
-function parseArgs(argv) {
+function parseArgs(argv, defaultPort) {
   const options = {
     command: argv[0] ?? "serve",
     folder: null,
     host: DEFAULT_HOST,
-    port: DEFAULT_PORT,
+    port: defaultPort,
     token: null,
     url: null,
     vaultPath: DEFAULT_VAULT_PATH
@@ -81,8 +95,7 @@ function parseArgs(argv) {
         break;
       case "--help":
       case "-h":
-        printHelp();
-        process.exit(0);
+        options.help = true;
         break;
       default:
         throw new Error(`Unknown argument: ${current}`);
@@ -154,6 +167,16 @@ async function addRepoCommand(options) {
   console.log(`Stored ${normalizedUrl} -> ${repoRoot}`);
 }
 
+async function setPortCommand(options) {
+  if (!options.port) {
+    throw new Error("The set-port command requires --port <number>.");
+  }
+
+  const result = await setRelayPort(options.port);
+  console.log(`Relay port updated to ${result.relayPort} in ${result.configPath}`);
+  console.log("Restart the relay server for the new port to take effect.");
+}
+
 async function serveRelay(options) {
   const server = http.createServer(async (request, response) => {
     try {
@@ -195,7 +218,7 @@ async function serveRelay(options) {
   });
 }
 
-async function startVaultRepl(options, hooks = {}) {
+async function startVaultRepl(options, relayConfig, hooks = {}) {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -233,7 +256,7 @@ async function startVaultRepl(options, hooks = {}) {
       }
 
       if (normalizedCommand === "help") {
-        printReplHelp();
+        printReplHelp(relayConfig);
         continue;
       }
 
@@ -248,8 +271,14 @@ async function startVaultRepl(options, hooks = {}) {
         continue;
       }
 
+      if (normalizedCommand === "set-port") {
+        const nextPort = parseReplPort(args);
+        await setPortCommand({ port: nextPort });
+        continue;
+      }
+
       console.log(`Unknown command: ${command}`);
-      printReplHelp();
+      printReplHelp(relayConfig);
     }
   } finally {
     rl.close();
@@ -549,34 +578,45 @@ function respondJson(response, statusCode, body) {
   response.end(`${JSON.stringify(body, null, 2)}\n`);
 }
 
-function printHelp() {
+function printHelp(relayConfig) {
   console.log(`issues-relay-server
 
 Usage:
-  node ./server.js serve [--host 127.0.0.1] [--port 4317]
+  node ./server.js serve [--host 127.0.0.1] [--port <port>]
   node ./server.js repl
   node ./server.js add --url <repository-url> --folder <repository-folder> --token <github-token>
+  node ./server.js set-port --port <port>
 
 Options:
   --host <host>     Host to bind the relay server to. Defaults to 127.0.0.1.
-  --port <port>     Port to bind the relay server to. Defaults to 4317.
+  --port <port>     Port to bind the relay server to. Defaults to the shared relay config.
   --vault <path>    Optional path to the relay vault file.
   --url <url>       Repository URL to register in the vault.
   --folder <path>   Repository folder to register in the vault.
   --token <token>   GitHub token stored in the relay vault for this repo.
 
+Shared relay config:
+  ${relayConfig.configPath}
+  Default port: ${relayConfig.relayPort}
+
 The serve command starts the HTTP listener and opens the REPL in the same process.
 `);
 }
 
-function printReplHelp() {
+function printReplHelp(relayConfig) {
   console.log(`
 Commands:
   add [--url <url>] [--folder <path>] [--token <token>]
             Add or update a repository in the relay vault.
   list      Show the repositories currently stored in the vault.
+  set-port  set-port <port>
+            Update the shared relay config with a new server port.
   help      Show this help.
   quit      Leave the REPL and stop the HTTP server when running under serve.
+
+Shared relay config:
+  ${relayConfig.configPath}
+  Default port: ${relayConfig.relayPort}
 `);
 }
 
@@ -605,6 +645,18 @@ function parseReplInput(input) {
 
     return token;
   });
+}
+
+function parseReplPort(args) {
+  if (args[0] === "--port") {
+    return parsePort(requireValue(args, 1, "--port"));
+  }
+
+  if (args[0]) {
+    return parsePort(args[0]);
+  }
+
+  throw new Error("The set-port command requires a port number.");
 }
 
 function parseReplFlags(args) {

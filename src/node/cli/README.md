@@ -9,6 +9,7 @@ The CLI can:
 - create a commit for an issue and close it on GitHub
 - create issues on the remote repository
 - hand completed work off to the local relay server when needed
+- update the shared relay config port with `set-port`
 
 The CLI no longer uses any `lookup.tsv` file. Authentication comes only from:
 - `--token <token>`
@@ -85,10 +86,15 @@ Create a new issue on the remote repository.
 - `--save`: Ask the relay flow to push after `completed`.
 - `--branch <name>`: Push target branch for `completed`.
 - `--relay`: Send `completed` to the local relay server instead of committing directly.
-- `--relay-url <url>`: Relay server base URL. Defaults to `http://127.0.0.1:4317`.
+- `--relay-url <url>`: Relay server base URL. Defaults to the shared relay config.
+- `--port <number>`: Update the shared relay config when using `set-port`.
 - `--json`: Print the full result as JSON.
 - `--output <path>`: Save the full result as JSON to a file.
 - `--help`, `-h`: Show help.
+
+## Shared relay config
+
+The CLI and the relay server both read `relay-config.json` at the workspace root. Use `set-port --port <number>` to update it.
 
 ## Examples
 

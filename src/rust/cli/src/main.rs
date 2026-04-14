@@ -4,8 +4,12 @@ use github_issues_resolver_shared::{
     filter_backlog_issues,
     find_git_root,
     read_backlog,
+    read_relay_port,
     require_git_hub_token,
     resolve_repository_context,
+    relay_url_for_port,
+    relay_config_path,
+    write_relay_port,
     write_backlog,
     Backlog,
     Issue,
@@ -29,26 +33,29 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let options = parse_args(env::args().skip(1).collect())?;
+    let relay_port = read_relay_port()?;
+    let options = parse_args(env::args().skip(1).collect(), relay_port)?;
 
     if options.help {
-        print_help();
+        print_help(relay_port)?;
         return Ok(());
     }
 
-    let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
     let command = options.command.as_str();
 
     match command {
         "sync" => {
+            let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
             let backlog = sync_issues(&repo_root, &options)?;
             render_issue_collection(&filter_backlog_issues(&backlog, options.all), &options)?;
         }
         "list" => {
+            let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
             let backlog = ensure_backlog(&repo_root, &options)?;
             render_issue_collection(&filter_backlog_issues(&backlog, options.all), &options)?;
         }
         "show" => {
+            let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
             let backlog = ensure_backlog(&repo_root, &options)?;
             let issue_number = options
                 .issue_number
@@ -57,6 +64,7 @@ fn run() -> Result<(), String> {
             render_single_issue(issue, &options)?;
         }
         "start-issue" => {
+            let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
             let issue_number = options
                 .issue_number
                 .ok_or_else(|| "The start-issue command requires --issue <number>.".to_owned())?;
@@ -64,6 +72,7 @@ fn run() -> Result<(), String> {
             println!("{branch_name}");
         }
         "completed" => {
+            let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
             let result = commit_issue_fix(&repo_root, &options)?;
 
             if options.json {
@@ -88,6 +97,7 @@ fn run() -> Result<(), String> {
             }
         }
         "report" | "create-issue" => {
+            let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
             let created = create_remote_issue(&repo_root, &options)?;
 
             if options.json {
@@ -95,6 +105,9 @@ fn run() -> Result<(), String> {
             } else {
                 println!("#{}: {}", created.number, created.title);
             }
+        }
+        "set-port" => {
+            set_port_command(&options)?;
         }
         other => {
             return Err(format!("Unsupported command: {other}"));
@@ -117,6 +130,7 @@ struct Options {
     json: bool,
     label: Option<String>,
     output: Option<String>,
+    port: Option<u16>,
     push: bool,
     relay: bool,
     relay_url: String,
@@ -176,7 +190,7 @@ struct GitHubUser {
     login: Option<String>,
 }
 
-fn parse_args(argv: Vec<String>) -> Result<Options, String> {
+fn parse_args(argv: Vec<String>, default_relay_port: u16) -> Result<Options, String> {
     let mut options = Options {
         all: false,
         branch: None,
@@ -189,9 +203,10 @@ fn parse_args(argv: Vec<String>) -> Result<Options, String> {
         json: false,
         label: None,
         output: None,
+        port: None,
         push: false,
         relay: false,
-        relay_url: github_issues_resolver_shared::default_relay_url().to_owned(),
+        relay_url: relay_url_for_port(default_relay_port),
         remote: None,
         save: false,
         title: None,
@@ -235,6 +250,10 @@ fn parse_args(argv: Vec<String>) -> Result<Options, String> {
             "--output" => {
                 index += 1;
                 options.output = Some(require_value(&argv, index, "--output")?);
+            }
+            "--port" => {
+                index += 1;
+                options.port = Some(parse_port(&require_value(&argv, index, "--port")?)?);
             }
             "--relay" => {
                 options.relay = true;
@@ -286,6 +305,27 @@ fn parse_args(argv: Vec<String>) -> Result<Options, String> {
     }
 
     Ok(options)
+}
+
+fn set_port_command(options: &Options) -> Result<(), String> {
+    let port = options
+        .port
+        .ok_or_else(|| "The set-port command requires --port <number>.".to_owned())?;
+    let config_path = write_relay_port(port)?;
+    println!("Relay port updated to {port} in {}", config_path.display());
+    Ok(())
+}
+
+fn parse_port(value: &str) -> Result<u16, String> {
+    let port = value
+        .parse::<u16>()
+        .map_err(|_| format!("Invalid port: {value}"))?;
+
+    if port == 0 {
+        return Err(format!("Invalid port: {value}"));
+    }
+
+    Ok(port)
 }
 
 fn require_value(argv: &[String], index: usize, flag_name: &str) -> Result<String, String> {
@@ -847,7 +887,8 @@ fn args_vec_to_string(args: &[std::ffi::OsString]) -> String {
         .join(" ")
 }
 
-fn print_help() {
+fn print_help(relay_port: u16) -> Result<(), String> {
+    let config_path = relay_config_path()?;
     println!(
         "github-issues-resolver\n\n\
 Usage:\n\
@@ -866,7 +907,9 @@ Commands:\n\
   report              report --title <text> [--description <text>] [--label bug|improvement|feature] [--cwd <path>] [--remote <name>] [--token <token>]\n\
                       Create a new issue on the remote repository.\n\
   create-issue        create-issue --title <text> [--description <text>] [--label bug|improvement|feature] [--cwd <path>] [--remote <name>] [--token <token>]\n\
-                      Same as report.\n\n\
+                      Same as report.\n\
+  set-port            set-port --port <number>\n\
+                      Update the shared relay config with a new server port.\n\n\
 Options:\n\
   --cwd <path>       Start searching for the git repository from this directory.\n\
   --remote <name>    Git remote to inspect. Defaults to \"origin\".\n\
@@ -881,9 +924,16 @@ Options:\n\
   --save             Ask the relay flow to push after completed.\n\
   --branch <name>    Push target branch for completed.\n\
   --relay            Send completed to the local relay server instead of committing directly.\n\
-  --relay-url <url>  Relay server base URL. Defaults to http://127.0.0.1:4317.\n\
+  --relay-url <url>  Relay server base URL. Defaults to the shared relay config.\n\
+  --port <number>    Update the shared relay config when using set-port.\n\
   --json             Print the full result as JSON.\n\
   --output <path>    Save the full result as JSON to a file.\n\
-  --help, -h         Show this help message.\n"
+  --help, -h         Show this help message.\n\n\
+Shared relay config:\n\
+  {}\n\
+  Default port: {}\n",
+        config_path.display(),
+        relay_port
     );
+    Ok(())
 }

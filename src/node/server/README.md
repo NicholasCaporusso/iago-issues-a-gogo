@@ -26,9 +26,10 @@ npm install
 ## Usage
 
 ```bash
-node ./server.js serve [--host 127.0.0.1] [--port 4317]
+node ./server.js serve [--host 127.0.0.1] [--port <port>]
 node ./server.js repl
  node ./server.js add --url <repository-url> --folder <repository-folder> --token <github-token>
+node ./server.js set-port --port <port>
 ```
 
 If no command is provided, the server defaults to `serve`.
@@ -41,7 +42,7 @@ Start the HTTP listener and open the vault REPL in the same process.
 
 The server listens on:
 - host: `127.0.0.1`
-- port: `4317`
+- port: the value stored in `relay-config.json` at the workspace root
 
 ### `repl`
 
@@ -62,6 +63,11 @@ Inside the relay REPL:
 
 - `add`: Add or update a repository in the relay vault.
 - `list`: Show the repositories currently stored in the vault.
+- `set-port`: Update the shared relay config with a new server port.
+
+## Shared config
+
+The client and the server both read `relay-config.json` at the workspace root. Use `set-port --port <number>` to update it.
 - `help`: Show REPL help.
 - `quit`: Leave the REPL.
 

@@ -8,8 +8,12 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 import * as shared from "../shared/repository.js";
-
-const DEFAULT_RELAY_URL = "http://127.0.0.1:4317";
+import {
+  DEFAULT_RELAY_PORT,
+  readRelayConfig,
+  relayUrlForPort,
+  setRelayPort
+} from "../shared/relay-config.js";
 const BACKLOG_DIR_NAME = ".backlog";
 
 async function main() {
@@ -21,17 +25,17 @@ async function main() {
       return;
     }
 
-    const options = parseArgs(argv);
+    const relayConfig = await readRelayConfig();
+    const options = parseArgs(argv, relayConfig.relayPort);
 
     if (options.help) {
       printHelp();
       return;
     }
 
-    const repoRoot = await shared.findGitRoot(options.cwd ?? process.cwd());
-
-      switch (options.command) {
+    switch (options.command) {
       case "sync": {
+        const repoRoot = await getRepoRoot(options);
         const result = options.token
           ? await shared.syncIssues(repoRoot, options)
           : await relaySync(repoRoot, options);
@@ -39,17 +43,20 @@ async function main() {
         return;
       }
       case "list": {
+        const repoRoot = await getRepoRoot(options);
         const backlog = await ensureBacklog(repoRoot, options);
         renderIssueCollection(filterOpenIssues(backlog, options), options);
         return;
       }
       case "show": {
+        const repoRoot = await getRepoRoot(options);
         const backlog = await ensureBacklog(repoRoot, options);
         const issue = findIssueByNumber(backlog, options.issueNumber);
         renderSingleIssue(issue, options);
         return;
       }
       case "start-issue": {
+        const repoRoot = await getRepoRoot(options);
         const branchName = await startIssueBranch({
           issueNumber: options.issueNumber,
           repoRoot,
@@ -59,6 +66,7 @@ async function main() {
         return;
       }
       case "completed": {
+        const repoRoot = await getRepoRoot(options);
         const result = options.relay
           ? await relayCompleted(repoRoot, options)
           : await commitIssueFix({
@@ -90,6 +98,7 @@ async function main() {
       }
       case "report":
       case "create-issue": {
+        const repoRoot = await getRepoRoot(options);
         const createdIssue = await createRemoteIssue(repoRoot, options);
         if (options.json) {
           console.log(JSON.stringify(createdIssue, null, 2));
@@ -99,6 +108,9 @@ async function main() {
         console.log(`#${createdIssue.number}: ${createdIssue.title}`);
         return;
       }
+      case "set-port":
+        await setPortCommand(options);
+        return;
       default:
         throw new Error(`Unsupported command: ${options.command}`);
     }
@@ -108,7 +120,11 @@ async function main() {
   }
 }
 
-function parseArgs(argv) {
+async function getRepoRoot(options) {
+  return shared.findGitRoot(options.cwd ?? process.cwd());
+}
+
+function parseArgs(argv, defaultRelayPort) {
   const options = {
     all: false,
     branch: null,
@@ -123,10 +139,11 @@ function parseArgs(argv) {
     output: null,
     push: false,
     relay: false,
-    relayUrl: DEFAULT_RELAY_URL,
+    relayUrl: relayUrlForPort(defaultRelayPort),
     remote: null,
     runner: runGitCommand,
     save: false,
+    port: null,
     title: null,
     token: null
   };
@@ -169,6 +186,9 @@ function parseArgs(argv) {
         break;
       case "--relay-url":
         options.relayUrl = requireValue(argv, ++index, "--relay-url");
+        break;
+      case "--port":
+        options.port = parsePort(requireValue(argv, ++index, "--port"));
         break;
       case "--issue":
         options.issueNumber = parseIssueNumber(requireValue(argv, ++index, "--issue"));
@@ -840,8 +860,17 @@ async function relaySync(repoRoot, options) {
   return body;
 }
 
+async function setPortCommand(options) {
+  if (!options.port) {
+    throw new Error("The set-port command requires --port <number>.");
+  }
+
+  const result = await setRelayPort(options.port);
+  console.log(`Relay port updated to ${result.relayPort} in ${result.configPath}`);
+}
+
 function ensureRelayBaseUrl(value) {
-  const normalized = String(value ?? DEFAULT_RELAY_URL).trim();
+  const normalized = String(value ?? relayUrlForPort(DEFAULT_RELAY_PORT)).trim();
   return normalized.endsWith("/") ? normalized : `${normalized}/`;
 }
 
@@ -1818,6 +1847,8 @@ function printHelp() {
   completed           Stage files, commit progress for an issue, and close it.
   report              Create a new issue on the remote repository.
   create-issue        Create a new issue on the remote repository.
+  set-port --port <number>
+                      Update the shared relay config with a new server port.
 
   Options:
     --cwd <path>       Start searching for the git repository from this directory.
@@ -1833,10 +1864,14 @@ function printHelp() {
     --save             Ask the relay flow to push after completed.
     --branch <name>    Push target branch for completed.
     --relay            Send completed to the local relay server instead of committing directly.
-    --relay-url <url>  Relay server base URL. Defaults to http://127.0.0.1:4317.
+    --relay-url <url>  Relay server base URL. Defaults to the shared relay config.
+    --port <number>    Update the shared relay config when using set-port.
   --json             Print the full result as JSON.
   --output <path>    Save the full result as JSON to a file.
   --help, -h         Show this help message.
+
+Shared relay config:
+  relay-config.json at the workspace root
 `);
 }
 

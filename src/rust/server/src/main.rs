@@ -1,17 +1,24 @@
+mod config;
+
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
+use config::MASTER_ENCRYPTION_KEY;
 use github_issues_resolver_shared::{
     backlog_path,
     default_relay_host,
-    default_relay_port,
-    default_relay_url,
     find_git_root,
     parse_git_hub_remote,
     normalize_repository_remote,
+    read_relay_port,
     read_backlog,
+    relay_config_path,
+    write_relay_port,
     workspace_banner,
     Backlog,
     Issue,
     write_backlog,
 };
+use getrandom::fill as random_fill;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde::{Deserialize, Serialize};
@@ -39,9 +46,10 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     let mut args = env::args().skip(1);
     let command = args.next().unwrap_or_else(|| "serve".to_owned());
+    let relay_port = read_relay_port()?;
 
     if matches!(command.as_str(), "--help" | "-h") {
-        print_help();
+        print_help(relay_port)?;
         return Ok(());
     }
 
@@ -49,35 +57,38 @@ fn run() -> Result<(), String> {
 
     match command.as_str() {
         "serve" => {
-            let options = parse_server_options(&remaining_args)?;
+            let options = parse_server_options(&remaining_args, relay_port)?;
             let server = start_http_server(&options.host, options.port, &options.vault_path)?;
             println!("{}", workspace_banner("issues-relay-server serve"));
             println!(
                 "Listening on http://{}:{}",
                 options.host, options.port
             );
-            run_repl_loop("relay-server> ", &options.vault_path, Some(&server))?;
+            run_repl_loop("relay-server> ", &options.vault_path, Some(&server), relay_port)?;
             server.stop();
         }
         "repl" => {
-            let options = parse_server_options(&remaining_args)?;
+            let options = parse_server_options(&remaining_args, relay_port)?;
             println!("{}", workspace_banner("issues-relay-server repl"));
-            run_repl_loop("relay> ", &options.vault_path, None)?;
+            run_repl_loop("relay> ", &options.vault_path, None, relay_port)?;
         }
         "list" => {
-            let options = parse_server_options(&remaining_args)?;
+            let options = parse_server_options(&remaining_args, relay_port)?;
             print_vault_entries(&options.vault_path)?;
         }
         "add" => {
             let options = parse_add_repo_options(&remaining_args, default_vault_path(), false)?;
             add_repo_command(&options)?;
         }
+        "set-port" => {
+            let options = parse_server_options(&remaining_args, relay_port)?;
+            set_port_command(&options)?;
+        }
         other => {
             return Err(format!("Unsupported command: {other}"));
         }
     }
 
-    let _ = default_relay_url();
     Ok(())
 }
 
@@ -119,9 +130,9 @@ struct VaultRepo {
     updated_at: Option<String>,
 }
 
-fn parse_server_options(argv: &[String]) -> Result<ServerOptions, String> {
+fn parse_server_options(argv: &[String], default_port: u16) -> Result<ServerOptions, String> {
     let mut host = default_relay_host().to_owned();
-    let mut port = default_relay_port();
+    let mut port = default_port;
     let mut vault_path = default_vault_path();
     let mut index = 0;
 
@@ -364,7 +375,12 @@ fn http_json_response(status: u16, body: serde_json::Value) -> String {
     )
 }
 
-fn run_repl_loop(prompt: &str, vault_path: &Path, _server: Option<&RelayServerHandle>) -> Result<(), String> {
+fn run_repl_loop(
+    prompt: &str,
+    vault_path: &Path,
+    _server: Option<&RelayServerHandle>,
+    default_port: u16,
+) -> Result<(), String> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut input = String::new();
@@ -397,11 +413,19 @@ fn run_repl_loop(prompt: &str, vault_path: &Path, _server: Option<&RelayServerHa
 
         match command.as_str() {
             "quit" | "exit" => break,
-            "help" => print_repl_help(),
+            "help" => print_repl_help(default_port),
             "list" => print_vault_entries(vault_path)?,
             "add" => {
                 let options = parse_add_repo_options(&command_args, vault_path.to_path_buf(), true)?;
                 add_repo_command(&options)?;
+            }
+            "set-port" => {
+                let port = parse_repl_port(&command_args)?;
+                set_port_command(&ServerOptions {
+                    host: default_relay_host().to_owned(),
+                    port,
+                    vault_path: vault_path.to_path_buf(),
+                })?;
             }
             other => println!("Unknown command: {other}"),
         }
@@ -439,6 +463,18 @@ fn split_command_line(input: &str) -> Vec<String> {
     }
 
     tokens
+}
+
+fn parse_repl_port(args: &[String]) -> Result<u16, String> {
+    if args.first().map(|value| value.as_str()) == Some("--port") {
+        let value = require_value(args, 1, "--port")?;
+        return parse_port(&value);
+    }
+
+    let value = args
+        .first()
+        .ok_or_else(|| "The set-port command requires a port number.".to_owned())?;
+    parse_port(value)
 }
 
 fn print_vault_entries(vault_path: &Path) -> Result<(), String> {
@@ -493,6 +529,17 @@ fn add_repo_command(options: &AddRepoOptions) -> Result<(), String> {
         normalize_repository_remote(&repository_url),
         find_git_root(Path::new(&folder))?.display()
     );
+    Ok(())
+}
+
+fn set_port_command(options: &ServerOptions) -> Result<(), String> {
+    let config_path = write_relay_port(options.port)?;
+    println!(
+        "Relay port updated to {} in {}",
+        options.port,
+        config_path.display()
+    );
+    println!("Restart the relay server for the new port to take effect.");
     Ok(())
 }
 
@@ -561,7 +608,7 @@ fn read_vault(vault_path: &Path) -> Result<Vault, String> {
         Ok(contents) => {
             let vault: Vault = serde_json::from_str(&contents)
                 .map_err(|error| format!("Failed to parse {}: {error}", vault_path.display()))?;
-            Ok(vault)
+            decrypt_vault(vault)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vault::default()),
         Err(error) => Err(format!("Failed to read {}: {error}", vault_path.display())),
@@ -574,10 +621,124 @@ fn write_vault(vault_path: &Path, vault: &Vault) -> Result<(), String> {
             .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
     }
 
-    let contents = serde_json::to_string_pretty(vault)
+    let encrypted_vault = encrypt_vault(vault)?;
+    let contents = serde_json::to_string_pretty(&encrypted_vault)
         .map_err(|error| format!("Failed to serialize vault: {error}"))?;
     fs::write(vault_path, format!("{contents}\n"))
         .map_err(|error| format!("Failed to write {}: {error}", vault_path.display()))
+}
+
+fn decrypt_vault(vault: Vault) -> Result<Vault, String> {
+    let mut repos = Vec::with_capacity(vault.repos.len());
+
+    for repo in vault.repos {
+        repos.push(decrypt_vault_repo(repo)?);
+    }
+
+    Ok(Vault { repos })
+}
+
+fn encrypt_vault(vault: &Vault) -> Result<Vault, String> {
+    let mut repos = Vec::with_capacity(vault.repos.len());
+
+    for repo in &vault.repos {
+        repos.push(encrypt_vault_repo(repo)?);
+    }
+
+    Ok(Vault { repos })
+}
+
+fn decrypt_vault_repo(mut repo: VaultRepo) -> Result<VaultRepo, String> {
+    repo.token = decrypt_vault_token(&repo.token)?;
+    Ok(repo)
+}
+
+fn encrypt_vault_repo(repo: &VaultRepo) -> Result<VaultRepo, String> {
+    let mut repo = repo.clone();
+    repo.token = encrypt_vault_token(&repo.token)?;
+    Ok(repo)
+}
+
+fn encrypt_vault_token(token: &str) -> Result<String, String> {
+    if token.trim().is_empty() {
+        return Ok(String::new());
+    }
+
+    let mut nonce_bytes = [0u8; 12];
+    random_fill(&mut nonce_bytes).map_err(|error| format!("Failed to generate vault nonce: {error}"))?;
+    let cipher = Aes256Gcm::new_from_slice(&MASTER_ENCRYPTION_KEY)
+        .map_err(|error| format!("Failed to initialize vault encryption: {error}"))?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(nonce, token.as_bytes())
+        .map_err(|error| format!("Failed to encrypt vault token: {error}"))?;
+
+    Ok(format!(
+        "enc:v1:{}:{}",
+        hex_encode(&nonce_bytes),
+        hex_encode(&ciphertext)
+    ))
+}
+
+fn decrypt_vault_token(token: &str) -> Result<String, String> {
+    let Some(payload) = token.strip_prefix("enc:v1:") else {
+        return Ok(token.to_owned());
+    };
+
+    let mut parts = payload.splitn(2, ':');
+    let nonce_hex = parts
+        .next()
+        .ok_or_else(|| "Encrypted vault token is missing the nonce.".to_owned())?;
+    let ciphertext_hex = parts
+        .next()
+        .ok_or_else(|| "Encrypted vault token is missing the ciphertext.".to_owned())?;
+    let nonce_bytes = hex_decode(nonce_hex)
+        .map_err(|error| format!("Invalid encrypted vault nonce: {error}"))?;
+    if nonce_bytes.len() != 12 {
+        return Err(format!(
+            "Invalid encrypted vault nonce length: expected 12 bytes, found {}.",
+            nonce_bytes.len()
+        ));
+    }
+
+    let ciphertext = hex_decode(ciphertext_hex)
+        .map_err(|error| format!("Invalid encrypted vault ciphertext: {error}"))?;
+    let cipher = Aes256Gcm::new_from_slice(&MASTER_ENCRYPTION_KEY)
+        .map_err(|error| format!("Failed to initialize vault encryption: {error}"))?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|error| format!("Failed to decrypt vault token: {error}"))?;
+
+    String::from_utf8(plaintext).map_err(|error| format!("Vault token is not valid UTF-8: {error}"))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+
+    for byte in bytes {
+        output.push_str(&format!("{byte:02x}"));
+    }
+
+    output
+}
+
+fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
+    if input.len() % 2 != 0 {
+        return Err("hex string length must be even".to_owned());
+    }
+
+    let mut bytes = Vec::with_capacity(input.len() / 2);
+    let chars: Vec<char> = input.chars().collect();
+
+    for index in (0..chars.len()).step_by(2) {
+        let hex = [chars[index], chars[index + 1]];
+        let value = u8::from_str_radix(&hex.iter().collect::<String>(), 16)
+            .map_err(|error| format!("invalid hex byte '{}{}': {error}", hex[0], hex[1]))?;
+        bytes.push(value);
+    }
+
+    Ok(bytes)
 }
 
 #[derive(Debug, Deserialize)]
@@ -830,8 +991,11 @@ fn build_repository_fetch_error(
     )
 }
 
-fn print_repl_help() {
+fn print_repl_help(default_port: u16) {
     let vault_path = default_vault_path();
+    let config_path = relay_config_path()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| "relay-config.json".to_owned());
     println!(
         "Commands:\n\
   help      Show this help.\n\
@@ -839,23 +1003,34 @@ fn print_repl_help() {
             Show repositories currently stored in the vault.\n\
   add       add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
             Add or update a repository in the vault.\n\
+  set-port  set-port <port>\n\
+            Update the shared relay config with a new server port.\n\
   quit      Leave the REPL.\n\
   exit      Same as quit.\n\n\
-Default vault:"
+Shared relay config:"
     );
+    println!("  {}", config_path);
+    println!("  Default port: {}", default_port);
+    println!("Default vault:");
     println!("  {}", vault_path.display());
 }
 
-fn print_help() {
+fn print_help(default_port: u16) -> Result<(), String> {
     let vault_path = default_vault_path();
+    let config_path = relay_config_path()?;
     println!(
         "issues-relay-server\n\n\
 Usage:\n\
-  issues-relay-server serve [--host 127.0.0.1] [--port 4317] [--vault <path>]\n\
+  issues-relay-server serve [--host 127.0.0.1] [--port <port>] [--vault <path>]\n\
   issues-relay-server repl [--vault <path>]\n\
   issues-relay-server list [--vault <path>]\n\
-  issues-relay-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\n\
-Default vault:"
+  issues-relay-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
+  issues-relay-server set-port --port <port>\n\n\
+Shared relay config:"
     );
+    println!("  {}", config_path.display());
+    println!("  Default port: {}", default_port);
+    println!("Default vault:");
     println!("  {}", vault_path.display());
+    Ok(())
 }

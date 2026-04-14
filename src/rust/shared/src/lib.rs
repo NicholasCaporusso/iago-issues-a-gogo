@@ -1,3 +1,4 @@
+pub mod relay_config;
 pub mod repository;
 
 pub use repository::{
@@ -23,4 +24,15 @@ pub use repository::{
     Issue,
     RepositoryContext,
     RepositoryInfo,
+};
+pub use relay_config::{
+    read_relay_config,
+    read_relay_port,
+    relay_config_path,
+    relay_url_for_port,
+    validate_relay_port,
+    write_relay_config,
+    write_relay_port,
+    RelayConfig,
+    DEFAULT_RELAY_PORT,
 };
