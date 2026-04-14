@@ -1,4 +1,4 @@
-# GitHub Issues Resolver CLI
+# IAGO CLI
 
 This is the main command-line entrypoint for working with GitHub issues from a local git repository.
 
@@ -8,7 +8,7 @@ The CLI can:
 - start an issue branch
 - create a commit for an issue and close it on GitHub
 - create issues on the remote repository
-- hand completed work off to the local relay server when needed
+- hand completed work off to the local `iago-server` when needed
 - update the shared relay config port with `set-port`
 
 The CLI no longer uses any `lookup.tsv` file. Authentication comes only from:
@@ -19,7 +19,7 @@ The CLI no longer uses any `lookup.tsv` file. Authentication comes only from:
 ## Location
 
 - Source: [`src/node/cli/cli.js`](/workspace/tools-github-issues-resolver/src/node/cli/cli.js)
-- Package binary: `github-issues-resolver`
+- Package binary: `iago`
 
 ## Installation
 
@@ -38,7 +38,7 @@ npm start -- --help
 ## Usage
 
 ```bash
-github-issues-resolver [command] [options]
+iago [command] [options]
 ```
 
 If no command is provided, the CLI defaults to `sync`.
@@ -49,7 +49,7 @@ If no command is provided, the CLI defaults to `sync`.
 
 Download open issues and save them to `.backlog/issues.json`.
 
-If no token is provided, the CLI falls back to the local relay server.
+If no token is provided, the CLI falls back to the local `iago-server`.
 
 ### `list`
 
@@ -85,8 +85,8 @@ Create a new issue on the remote repository.
 - `--push`: Push after `completed`.
 - `--save`: Ask the relay flow to push after `completed`.
 - `--branch <name>`: Push target branch for `completed`.
-- `--relay`: Send `completed` to the local relay server instead of committing directly.
-- `--relay-url <url>`: Relay server base URL. Defaults to the shared relay config.
+- `--relay`: Send `completed` to the local `iago-server` instead of committing directly.
+- `--relay-url <url>`: `iago-server` base URL. Defaults to the shared relay config.
 - `--port <number>`: Update the shared relay config when using `set-port`.
 - `--json`: Print the full result as JSON.
 - `--output <path>`: Save the full result as JSON to a file.
@@ -94,44 +94,44 @@ Create a new issue on the remote repository.
 
 ## Shared relay config
 
-The CLI and the relay server both read `relay-config.json` at the workspace root. Use `set-port --port <number>` to update it.
+The CLI and `iago-server` both read `relay-config.json` at the workspace root. Use `set-port --port <number>` to update it.
 
 ## Examples
 
 Sync issues using the current repo and your environment token:
 
 ```bash
-github-issues-resolver sync
+iago sync
 ```
 
 List backlog issues, including improvement and feature items:
 
 ```bash
-github-issues-resolver list --all
+iago list --all
 ```
 
 Start a branch for issue 42:
 
 ```bash
-github-issues-resolver start-issue --issue 42
+iago start-issue --issue 42
 ```
 
 Create a commit and close issue 42:
 
 ```bash
-github-issues-resolver completed --issue 42 --files src/node/cli/cli.js --title "Fix CLI help"
+iago completed --issue 42 --files src/node/cli/cli.js --title "Fix CLI help"
 ```
 
 Create a new issue:
 
 ```bash
-github-issues-resolver create-issue --title "Bug report" --description "Short summary"
+iago create-issue --title "Bug report" --description "Short summary"
 ```
 
-Use the local relay server for the completion flow:
+Use the local `iago-server` for the completion flow:
 
 ```bash
-github-issues-resolver completed --issue 42 --relay
+iago completed --issue 42 --relay
 ```
 
 ## Runtime files

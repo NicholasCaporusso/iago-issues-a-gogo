@@ -3,7 +3,7 @@ mod config;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use config::MASTER_ENCRYPTION_KEY;
-use github_issues_resolver_shared::{
+use iago_shared::{
     backlog_path,
     default_relay_host,
     find_git_root,
@@ -59,18 +59,18 @@ fn run() -> Result<(), String> {
         "serve" => {
             let options = parse_server_options(&remaining_args, relay_port)?;
             let server = start_http_server(&options.host, options.port, &options.vault_path)?;
-            println!("{}", workspace_banner("issues-relay-server serve"));
+            println!("{}", workspace_banner("iago-server serve"));
             println!(
                 "Listening on http://{}:{}",
                 options.host, options.port
             );
-            run_repl_loop("relay-server> ", &options.vault_path, Some(&server), relay_port)?;
+            run_repl_loop("iago-server> ", &options.vault_path, Some(&server), relay_port)?;
             server.stop();
         }
         "repl" => {
             let options = parse_server_options(&remaining_args, relay_port)?;
-            println!("{}", workspace_banner("issues-relay-server repl"));
-            run_repl_loop("relay> ", &options.vault_path, None, relay_port)?;
+            println!("{}", workspace_banner("iago-server repl"));
+            run_repl_loop("iago-server> ", &options.vault_path, None, relay_port)?;
         }
         "list" => {
             let options = parse_server_options(&remaining_args, relay_port)?;
@@ -80,10 +80,10 @@ fn run() -> Result<(), String> {
             let options = parse_add_repo_options(&remaining_args, default_vault_path(), false)?;
             add_repo_command(&options)?;
         }
-        "set-port" => {
-            let options = parse_server_options(&remaining_args, relay_port)?;
-            set_port_command(&options)?;
-        }
+            "set-port" => {
+                let options = parse_server_options(&remaining_args, relay_port)?;
+                set_port_command(&options)?;
+            }
         other => {
             return Err(format!("Unsupported command: {other}"));
         }
@@ -96,6 +96,7 @@ fn run() -> Result<(), String> {
 struct ServerOptions {
     host: String,
     port: u16,
+    port_provided: bool,
     vault_path: PathBuf,
 }
 
@@ -133,6 +134,7 @@ struct VaultRepo {
 fn parse_server_options(argv: &[String], default_port: u16) -> Result<ServerOptions, String> {
     let mut host = default_relay_host().to_owned();
     let mut port = default_port;
+    let mut port_provided = false;
     let mut vault_path = default_vault_path();
     let mut index = 0;
 
@@ -145,6 +147,7 @@ fn parse_server_options(argv: &[String], default_port: u16) -> Result<ServerOpti
             "--port" => {
                 index += 1;
                 port = parse_port(&require_value(argv, index, "--port")?)?;
+                port_provided = true;
             }
             "--vault" => {
                 index += 1;
@@ -154,6 +157,7 @@ fn parse_server_options(argv: &[String], default_port: u16) -> Result<ServerOpti
                 return Ok(ServerOptions {
                     host,
                     port,
+                    port_provided,
                     vault_path,
                 });
             }
@@ -168,6 +172,7 @@ fn parse_server_options(argv: &[String], default_port: u16) -> Result<ServerOpti
     Ok(ServerOptions {
         host,
         port,
+        port_provided,
         vault_path,
     })
 }
@@ -424,6 +429,7 @@ fn run_repl_loop(
                 set_port_command(&ServerOptions {
                     host: default_relay_host().to_owned(),
                     port,
+                    port_provided: true,
                     vault_path: vault_path.to_path_buf(),
                 })?;
             }
@@ -533,6 +539,10 @@ fn add_repo_command(options: &AddRepoOptions) -> Result<(), String> {
 }
 
 fn set_port_command(options: &ServerOptions) -> Result<(), String> {
+    if !options.port_provided {
+        return Err("The set-port command requires --port <number>.".to_owned());
+    }
+
     let config_path = write_relay_port(options.port)?;
     println!(
         "Relay port updated to {} in {}",
@@ -826,7 +836,7 @@ fn handle_sync_relay(payload: SyncRelayRequest, vault_path: &Path) -> Result<Rel
 }
 
 fn sync_issues_from_repository(
-    repository: &github_issues_resolver_shared::RepositoryInfo,
+    repository: &iago_shared::RepositoryInfo,
     token: &str,
     remote_name: &str,
     remote_url: &str,
@@ -851,7 +861,7 @@ fn sync_issues_from_repository(
 fn github_client(token: &str) -> Result<Client, String> {
     let mut headers = HeaderMap::new();
     headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github+json"));
-    headers.insert(USER_AGENT, HeaderValue::from_static("github-issues-resolver"));
+    headers.insert(USER_AGENT, HeaderValue::from_static("iago"));
     let auth_value = HeaderValue::from_str(&format!("Bearer {token}"))
         .map_err(|error| format!("Invalid GitHub token header: {error}"))?;
     headers.insert(AUTHORIZATION, auth_value);
@@ -864,7 +874,7 @@ fn github_client(token: &str) -> Result<Client, String> {
 
 fn fetch_open_issues(
     client: &Client,
-    repository: &github_issues_resolver_shared::RepositoryInfo,
+    repository: &iago_shared::RepositoryInfo,
     token: &str,
     existing_backlog: Backlog,
     remote_name: &str,
@@ -946,7 +956,7 @@ fn fetch_open_issues(
 
 fn build_repository_api_error(
     action: &str,
-    repository: &github_issues_resolver_shared::RepositoryInfo,
+    repository: &iago_shared::RepositoryInfo,
     remote_name: &str,
     remote_url: &str,
     token_present: bool,
@@ -979,7 +989,7 @@ fn build_repository_api_error(
 fn build_repository_fetch_error(
     action: &str,
     error: reqwest::Error,
-    repository: &github_issues_resolver_shared::RepositoryInfo,
+    repository: &iago_shared::RepositoryInfo,
     remote_name: &str,
     remote_url: &str,
 ) -> String {
@@ -1019,13 +1029,13 @@ fn print_help(default_port: u16) -> Result<(), String> {
     let vault_path = default_vault_path();
     let config_path = relay_config_path()?;
     println!(
-        "issues-relay-server\n\n\
+        "iago-server\n\n\
 Usage:\n\
-  issues-relay-server serve [--host 127.0.0.1] [--port <port>] [--vault <path>]\n\
-  issues-relay-server repl [--vault <path>]\n\
-  issues-relay-server list [--vault <path>]\n\
-  issues-relay-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
-  issues-relay-server set-port --port <port>\n\n\
+  iago-server serve [--host 127.0.0.1] [--port <port>] [--vault <path>]\n\
+  iago-server repl [--vault <path>]\n\
+  iago-server list [--vault <path>]\n\
+  iago-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
+  iago-server set-port --port <port>\n\n\
 Shared relay config:"
     );
     println!("  {}", config_path.display());

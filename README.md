@@ -1,8 +1,8 @@
-# GitHub Issues Resolver
+# IAGO
 
-This repository now centers on the Rust implementation:
-- a CLI for syncing, listing, showing, branching, committing, and creating GitHub issues
-- a local relay server binary that keeps the process alive and provides the relay shell entrypoint
+This repository now centers on the IAGO implementation:
+- the `iago` CLI for syncing, listing, showing, branching, committing, and creating GitHub issues
+- the `iago-server` local server binary that keeps the process alive and provides the shell entrypoint
 
 The Rust workspace lives in `src/rust/` and the Windows packaging helpers live in `build/rust/`.
 The older Node sources remain in `src/node/` for reference.
@@ -12,9 +12,9 @@ The older Node sources remain in `src/node/` for reference.
 - Rust workspace guide: [`src/rust/README.md`](/workspace/tools-github-issues-resolver/src/rust/README.md)
 - Rust shared crate: [`src/rust/shared/src/repository.rs`](/workspace/tools-github-issues-resolver/src/rust/shared/src/repository.rs)
 - Rust CLI entrypoint: [`src/rust/cli/src/main.rs`](/workspace/tools-github-issues-resolver/src/rust/cli/src/main.rs)
-- Rust relay server entrypoint: [`src/rust/server/src/main.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/main.rs)
+- Rust server entrypoint: [`src/rust/server/src/main.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/main.rs)
 - Rust CLI build script: [`build/rust/cli/build-windows-exe.ps1`](/workspace/tools-github-issues-resolver/build/rust/cli/build-windows-exe.ps1)
-- Rust relay server build script: [`build/rust/server/build-windows-exe.ps1`](/workspace/tools-github-issues-resolver/build/rust/server/build-windows-exe.ps1)
+- Rust server build script: [`build/rust/server/build-windows-exe.ps1`](/workspace/tools-github-issues-resolver/build/rust/server/build-windows-exe.ps1)
 
 ## Requirements
 
@@ -38,7 +38,7 @@ That installs the dev dependency used for Windows single-executable builds.
 ### 1. Sync issues into the current repository
 
 ```bash
-dist/rust/cli/github-issues-resolver.exe sync --token <github-token>
+dist/rust/cli/iago.exe sync --token <github-token>
 ```
 
 This writes the issue backlog to `.backlog/issues.json` in the repository you run it against.
@@ -46,34 +46,34 @@ This writes the issue backlog to `.backlog/issues.json` in the repository you ru
 ### 2. List the local backlog
 
 ```bash
-dist/rust/cli/github-issues-resolver.exe list
+dist/rust/cli/iago.exe list
 ```
 
 ### 3. Start work on an issue branch
 
 ```bash
-dist/rust/cli/github-issues-resolver.exe start-issue --issue 42
+dist/rust/cli/iago.exe start-issue --issue 42
 ```
 
 ### 4. Finish an issue
 
 ```bash
-dist/rust/cli/github-issues-resolver.exe completed --issue 42 --files src/app.rs --title "Fix the bug" --token <github-token>
+dist/rust/cli/iago.exe completed --issue 42 --files src/app.rs --title "Fix the bug" --token <github-token>
 ```
 
 ### 5. Create a GitHub issue
 
 ```bash
-dist/rust/cli/github-issues-resolver.exe create-issue --title "New bug" --description "Repro steps..." --label bug --token <github-token>
+dist/rust/cli/iago.exe create-issue --title "New bug" --description "Repro steps..." --label bug --token <github-token>
 ```
 
-### 6. Run the relay server
+### 6. Run the server
 
 ```bash
-dist/rust/server/issues-relay-server.exe repl
+dist/rust/server/iago-server.exe repl
 ```
 
-The current Rust relay server keeps the process alive in `serve` and `repl` mode. The relay shell is available, but the full HTTP relay workflow is still being translated.
+The current Rust server keeps the process alive in `serve` and `repl` mode. The shell is available, but the full HTTP relay workflow is still being translated.
 
 ## CLI Guide
 
@@ -106,7 +106,7 @@ The CLI is the main working surface for repository-level issue management.
 - `--output <path>`: Save the full result as JSON to a file.
 - `--all`: Include improvement and feature issues in list output.
 - `--relay`: Reserved for relay-based completion flows; the Rust CLI currently keeps direct GitHub mode as the primary path.
-- `--relay-url <url>`: Relay server base URL. Defaults to the shared relay config.
+- `--relay-url <url>`: iago-server base URL. Defaults to the shared relay config.
 - `--port <number>`: Update the shared relay config when using `set-port`.
 
 ### Authentication
@@ -125,9 +125,9 @@ The CLI writes generated state into the repository it is operating on:
 
 These files are created at runtime and belong to the target repository, not this tool repository.
 
-## Relay Server Guide
+## iago-server Guide
 
-The relay server is the local companion process.
+The server is the local companion process.
 
 ### Commands
 
@@ -179,8 +179,8 @@ npm run build:windows-server-exe
 ```
 
 The resulting binaries are written to:
-- `dist/rust/cli/github-issues-resolver.exe`
-- `dist/rust/server/issues-relay-server.exe`
+- `dist/rust/cli/iago.exe`
+- `dist/rust/server/iago-server.exe`
 
 ## Development
 
@@ -188,8 +188,8 @@ Useful checks from the repo root:
 
 ```bash
 npm test
-dist/rust/cli/github-issues-resolver.exe --help
-dist/rust/server/issues-relay-server.exe --help
+dist/rust/cli/iago.exe --help
+dist/rust/server/iago-server.exe --help
 ```
 
 The CLI and server share implementation details through [`src/rust/shared/src/repository.rs`](/workspace/tools-github-issues-resolver/src/rust/shared/src/repository.rs).
@@ -197,5 +197,5 @@ The CLI and server share implementation details through [`src/rust/shared/src/re
 ## Troubleshooting
 
 - If `sync` or `create-issue` fails with an authentication error, pass `--token` or set `GITHUB_TOKEN` / `GH_TOKEN`.
-- If the relay port is already in use, stop the old relay server or choose a different `--port` and update `relay-config.json` with `set-port`.
+- If the relay port is already in use, stop the old server or choose a different `--port` and update `relay-config.json` with `set-port`.
 - If you are looking for the old file-based token lookup, it has been removed intentionally.

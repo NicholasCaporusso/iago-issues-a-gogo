@@ -1,4 +1,4 @@
-use github_issues_resolver_shared::{
+use iago_shared::{
     backlog_path,
     build_issue_fix_commit_message,
     filter_backlog_issues,
@@ -609,7 +609,7 @@ fn sync_issues(repo_root: &Path, options: &Options) -> Result<Backlog, String> {
 fn relay_sync(
     repo_root: &Path,
     options: &Options,
-    context: &github_issues_resolver_shared::RepositoryContext,
+    context: &iago_shared::RepositoryContext,
 ) -> Result<Backlog, String> {
     let relay_target = new_relay_url(options.relay_url.as_str(), "/sync")?;
     let client = Client::new();
@@ -617,11 +617,11 @@ fn relay_sync(
         .post(relay_target)
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
-        .header("User-Agent", "github-issues-resolver-relay-client")
+        .header("User-Agent", "iago-relay-client")
         .json(&json!({
             "remote": options.remote.clone().unwrap_or_else(|| "origin".to_owned()),
             "repositoryFolder": repo_root.display().to_string(),
-            "repositoryUrl": github_issues_resolver_shared::normalize_repository_remote(&context.remote_url)
+            "repositoryUrl": iago_shared::normalize_repository_remote(&context.remote_url)
         }))
         .send()
         .map_err(|error| format!("Failed to sync via relay: {error}"))?;
@@ -727,7 +727,7 @@ fn update_backlog_issue_state(repo_root: &Path, issue_number: u64, state: &str) 
 
 fn fetch_open_issues(
     client: &Client,
-    context: &github_issues_resolver_shared::RepositoryContext,
+    context: &iago_shared::RepositoryContext,
     existing_backlog: Backlog,
     remote_name: &str,
     repo_root: &Path,
@@ -804,7 +804,7 @@ fn fetch_open_issues(
 fn github_client(token: &str) -> Result<Client, String> {
     let mut headers = HeaderMap::new();
     headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github+json"));
-    headers.insert(USER_AGENT, HeaderValue::from_static("github-issues-resolver"));
+    headers.insert(USER_AGENT, HeaderValue::from_static("iago"));
     let auth_value = HeaderValue::from_str(&format!("Bearer {token}"))
         .map_err(|error| format!("Invalid GitHub token header: {error}"))?;
     headers.insert(AUTHORIZATION, auth_value);
@@ -890,9 +890,9 @@ fn args_vec_to_string(args: &[std::ffi::OsString]) -> String {
 fn print_help(relay_port: u16) -> Result<(), String> {
     let config_path = relay_config_path()?;
     println!(
-        "github-issues-resolver\n\n\
+        "iago\n\n\
 Usage:\n\
-  github-issues-resolver [command] [options]\n\n\
+  iago [command] [options]\n\n\
 Commands:\n\
   sync                sync [--cwd <path>] [--remote <name>] [--token <token>] [--all] [--json] [--output <path>]\n\
                       Download open issues and save .backlog/issues.json.\n\

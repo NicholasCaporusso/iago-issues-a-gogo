@@ -1,11 +1,11 @@
 [package]
-name = "github-issues-resolver"
+name = "iago"
 version = "0.1.0"
 edition = "2021"
-description = "Rust CLI for the GitHub issues resolver workspace."
+description = "IAGO CLI for the GitHub issues resolver workspace."
 
 [dependencies]
-github-issues-resolver-shared = { path = "../shared" }
+iago-shared = { path = "../shared" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

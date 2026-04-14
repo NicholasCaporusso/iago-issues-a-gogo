@@ -66,6 +66,7 @@ function parseArgs(argv, defaultPort) {
     folder: null,
     host: DEFAULT_HOST,
     port: defaultPort,
+    portProvided: false,
     token: null,
     url: null,
     vaultPath: DEFAULT_VAULT_PATH
@@ -80,6 +81,7 @@ function parseArgs(argv, defaultPort) {
         break;
       case "--port":
         options.port = parsePort(requireValue(argv, ++index, "--port"));
+        options.portProvided = true;
         break;
       case "--url":
         options.url = requireValue(argv, ++index, "--url");
@@ -168,7 +170,7 @@ async function addRepoCommand(options) {
 }
 
 async function setPortCommand(options) {
-  if (!options.port) {
+  if (!options.portProvided) {
     throw new Error("The set-port command requires --port <number>.");
   }
 
@@ -210,7 +212,7 @@ async function serveRelay(options) {
     server.listen(options.port, options.host, resolve);
   });
 
-  console.log(`Relay server listening on http://${options.host}:${options.port}`);
+  console.log(`iago-server listening on http://${options.host}:${options.port}`);
   await startVaultRepl(options, {
     onQuit: async () => {
       await closeServer(server);
@@ -224,7 +226,7 @@ async function startVaultRepl(options, relayConfig, hooks = {}) {
     output: process.stdout
   });
 
-  console.log("Relay vault REPL");
+  console.log("iago-server vault REPL");
   console.log("Type 'help' for commands, or 'quit' to exit.");
 
   try {
@@ -232,7 +234,7 @@ async function startVaultRepl(options, relayConfig, hooks = {}) {
       let input;
 
       try {
-        input = (await rl.question("relay> ")).trim();
+        input = (await rl.question("iago-server> ")).trim();
       } catch (error) {
         if (error?.code === "ERR_USE_AFTER_CLOSE" || /readline was closed/i.test(error?.message ?? "")) {
           break;
@@ -579,13 +581,13 @@ function respondJson(response, statusCode, body) {
 }
 
 function printHelp(relayConfig) {
-  console.log(`issues-relay-server
+  console.log(`iago-server
 
 Usage:
-  node ./server.js serve [--host 127.0.0.1] [--port <port>]
-  node ./server.js repl
-  node ./server.js add --url <repository-url> --folder <repository-folder> --token <github-token>
-  node ./server.js set-port --port <port>
+  iago-server serve [--host 127.0.0.1] [--port <port>]
+  iago-server repl
+  iago-server add --url <repository-url> --folder <repository-folder> --token <github-token>
+  iago-server set-port --port <port>
 
 Options:
   --host <host>     Host to bind the relay server to. Defaults to 127.0.0.1.

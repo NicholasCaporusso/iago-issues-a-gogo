@@ -1,5 +1,5 @@
 {
-  "name": "tools-github-issues-relay-server",
+  "name": "iago-server",
   "private": true,
   "version": "1.0.0",
   "type": "module",

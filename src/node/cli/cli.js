@@ -794,7 +794,7 @@ async function relayCompleted(repoRoot, options) {
     headers: {
       "Accept": "application/json",
       "Content-Type": "application/json",
-      "User-Agent": "github-issues-resolver-relay-client"
+      "User-Agent": "iago-relay-client"
     },
     body: JSON.stringify({
       branch: options.branch,
@@ -837,7 +837,7 @@ async function relaySync(repoRoot, options) {
     headers: {
       "Accept": "application/json",
       "Content-Type": "application/json",
-      "User-Agent": "github-issues-resolver-relay-client"
+      "User-Agent": "iago-relay-client"
     },
     body: JSON.stringify({
       remote: remoteName,
@@ -1738,7 +1738,7 @@ function toPortableRelativePath(filePath) {
 function buildHeaders(token) {
   const headers = {
     "Accept": "application/vnd.github+json",
-    "User-Agent": "github-issues-resolver"
+    "User-Agent": "iago"
   };
 
   if (token) {
@@ -1834,10 +1834,10 @@ async function safeReadJson(response) {
 }
 
 function printHelp() {
-  console.log(`github-issues-resolver
+  console.log(`iago
 
   Usage:
-    github-issues-resolver [command] [options]
+    iago [command] [options]
 
   Commands:
   sync                Download open issues and save .backlog/issues.json. Falls back to the relay server when no token is provided.

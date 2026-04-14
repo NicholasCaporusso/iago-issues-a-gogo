@@ -1,12 +1,12 @@
 [package]
-name = "issues-relay-server"
+name = "iago-server"
 version = "0.1.0"
 edition = "2021"
-description = "Rust relay server for the GitHub issues resolver workspace."
+description = "IAGO relay server for the GitHub issues resolver workspace."
 
 [dependencies]
 aes-gcm = "0.10"
-github-issues-resolver-shared = { path = "../shared" }
+iago-shared = { path = "../shared" }
 getrandom = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

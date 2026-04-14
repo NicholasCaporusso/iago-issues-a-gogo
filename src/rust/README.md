@@ -4,8 +4,8 @@ This directory contains the Rust implementation of the project.
 
 It is split into three crates:
 - `shared`: common Git and repository helpers
-- `github-issues-resolver`: the CLI binary
-- `issues-relay-server`: the relay server binary
+- `iago`: the CLI binary
+- `iago-server`: the server binary
 
 ## Layout
 
@@ -23,8 +23,8 @@ powershell -File ./build/rust/server/build-windows-exe.ps1
 ```
 
 The build scripts place the finished executables in:
-- `dist/rust/cli/github-issues-resolver.exe`
-- `dist/rust/server/issues-relay-server.exe`
+- `dist/rust/cli/iago.exe`
+- `dist/rust/server/iago-server.exe`
 
 ## CLI behavior
 
@@ -42,9 +42,9 @@ The CLI talks to GitHub directly when you supply a token. It also reads and upda
 
 ## Server behavior
 
-The Rust relay server keeps the process alive in both `serve` and `repl` mode until you type `quit`, `exit`, or send EOF. The REPL accepts `list`, `add`, and `set-port`.
+The Rust `iago-server` keeps the process alive in both `serve` and `repl` mode until you type `quit`, `exit`, or send EOF. The REPL accepts `list`, `add`, and `set-port`.
 
-The relay server also reads `relay-config.json` at the workspace root. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
+`iago-server` also reads `relay-config.json` at the workspace root. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
 
 Vault tokens are encrypted at rest in `src/rust/server/vault/repos.json` using the compiled master key in
 [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).

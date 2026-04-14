@@ -1,6 +1,6 @@
-# Relay Server
+# IAGO Server
 
-This is the local relay server used by the CLI when a direct GitHub token is not available or when you want to route completion through a separate process.
+This is the local `iago-server` used by the CLI when a direct GitHub token is not available or when you want to route completion through a separate process.
 
 It provides:
 - an HTTP server for relay requests
@@ -13,7 +13,7 @@ The server no longer uses any `lookup.tsv` file.
 
 - Source: [`src/node/server/server.js`](/workspace/tools-github-issues-resolver/src/node/server/server.js)
 - Default vault file: [`src/node/server/vault/repos.json`](/workspace/tools-github-issues-resolver/src/node/server/vault/repos.json)
-- Package binary: `issues-relay-server`
+- Package binary: `iago-server`
 
 ## Installation
 
@@ -26,10 +26,10 @@ npm install
 ## Usage
 
 ```bash
-node ./server.js serve [--host 127.0.0.1] [--port <port>]
-node ./server.js repl
- node ./server.js add --url <repository-url> --folder <repository-folder> --token <github-token>
-node ./server.js set-port --port <port>
+iago-server serve [--host 127.0.0.1] [--port <port>]
+iago-server repl
+iago-server add --url <repository-url> --folder <repository-folder> --token <github-token>
+iago-server set-port --port <port>
 ```
 
 If no command is provided, the server defaults to `serve`.
@@ -75,7 +75,7 @@ The client and the server both read `relay-config.json` at the workspace root. U
 
 ## HTTP endpoints
 
-The relay server exposes:
+`iago-server` exposes:
 - `GET /health`: Returns a simple health check response.
 - `POST /sync`: Sync issues for a registered repository.
 - `POST /completed`: Close an issue after relay-driven completion.
@@ -94,7 +94,7 @@ Tokens in the vault are encrypted before being written to disk.
 
 ## Examples
 
-Start the relay server:
+Start `iago-server`:
 
 ```bash
 node ./server.js serve

@@ -168,7 +168,7 @@ function buildHeaders(token) {
   return {
     Accept: "application/vnd.github+json",
     Authorization: `Bearer ${token}`,
-    "User-Agent": "github-issues-resolver"
+    "User-Agent": "iago"
   };
 }
 
