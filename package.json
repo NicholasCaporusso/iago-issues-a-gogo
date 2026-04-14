@@ -15,6 +15,7 @@
     "README.md"
   ],
   "scripts": {
+    "build:windows-exe": "node ./scripts/build-windows-exe.mjs",
     "start": "node ./cli/cli.js",
     "test": "node ./test/index.test.js"
   },
@@ -27,5 +28,8 @@
     "git",
     "cli"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "postject": "^1.0.0-alpha.6"
+  }
 }

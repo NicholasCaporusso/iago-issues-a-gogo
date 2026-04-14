@@ -1800,7 +1800,11 @@ function normalizeRepositoryRemote(remoteUrl) {
 }
 
 function getDefaultLookupPath() {
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "lookup.tsv");
+  try {
+    return path.join(path.dirname(fileURLToPath(import.meta.url)), "lookup.tsv");
+  } catch {
+    return path.join(path.dirname(process.execPath), "lookup.tsv");
+  }
 }
 
 function formatRemoteLabel(remoteName, remoteUrl) {
@@ -1924,10 +1928,15 @@ function isEntrypoint(moduleUrl) {
     return false;
   }
 
-  return path.resolve(process.argv[1]) === fileURLToPath(moduleUrl);
+  try {
+    return path.resolve(process.argv[1]) === fileURLToPath(moduleUrl);
+  } catch {
+    return false;
+  }
 }
 
 export {
+  main,
   filterOpenIssues,
   closeRemoteIssue,
   createRemoteIssue,

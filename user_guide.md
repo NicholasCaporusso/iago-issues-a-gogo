@@ -51,6 +51,14 @@ You can also use the package script:
 npm start -- --help
 ```
 
+If you want a Windows executable, build one with:
+
+```bash
+npm run build:windows-exe
+```
+
+The build writes `dist/release/github-issues-resolver.exe` and copies the token lookup file next to it.
+
 To install the CLI globally from this repository and run it from any folder as a system-wide executable:
 
 ```bash

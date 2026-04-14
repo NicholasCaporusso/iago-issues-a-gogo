@@ -34,6 +34,14 @@ The package metadata also defines a global executable name, so installing the pa
 github-issues-resolver --help
 ```
 
+For a distributable Windows binary, run:
+
+```bash
+npm run build:windows-exe
+```
+
+That writes `dist/release/github-issues-resolver.exe` and the companion `lookup.tsv` file.
+
 The same global install also exposes the relay server as `issues-relay-server`:
 
 ```bash
