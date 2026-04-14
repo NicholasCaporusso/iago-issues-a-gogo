@@ -28,7 +28,7 @@ Install dependencies if you add any later, then run the CLI directly with Node:
 node ./cli/cli.js --help
 ```
 
-The package metadata also defines a bin name:
+The package metadata also defines a global executable name, so installing the package exposes `github-issues-resolver` from any folder:
 
 ```bash
 github-issues-resolver --help

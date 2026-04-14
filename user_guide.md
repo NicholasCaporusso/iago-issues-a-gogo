@@ -51,7 +51,7 @@ You can also use the package script:
 npm start -- --help
 ```
 
-To install the CLI globally from this repository and run it from any folder:
+To install the CLI globally from this repository and run it from any folder as a system-wide executable:
 
 ```bash
 npm install -g .
