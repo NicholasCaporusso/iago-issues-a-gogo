@@ -1,6 +1,8 @@
-# IAGO
+# Issues A GOgo - a console utility for UI-based coding agents
+<img src="https://github.com/NicholasCaporusso/iago-issues-a-gogo/blob/main/assets/iago-logo.png?raw=true" width="300" />
 
-IAGO stands for Issues A GOgo.
+
+Use with Claude, Codex, and any other agent running in a sandbox to direct and track development using GitHub issues.
 
 This repository contains two Windows-ready Rust applications:
 
