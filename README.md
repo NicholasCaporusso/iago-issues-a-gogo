@@ -5,7 +5,7 @@ IAGO stands for Issues A GOgo.
 This repository contains two Windows-ready Rust applications:
 
 - `iago`, the command-line client for syncing issues, managing the local backlog, and working issue branches
-- `iago-server`, the local companion server that stores repository tokens, serves relay requests, and stays alive in the system tray on Windows
+- `iago-server`, the local companion server that stores repository tokens and serves relay requests on Windows
 
 The Rust workspace lives in [`src/rust/`](/workspace/tools-github-issues-resolver/src/rust/), and the Windows build and installer helpers live in [`build/rust/`](/workspace/tools-github-issues-resolver/build/rust/) and [`build/windows/installer/`](/workspace/tools-github-issues-resolver/build/windows/installer/).
 
@@ -91,13 +91,9 @@ dist\rust\cli\iago.exe create-issue --title "New bug" --description "Repro steps
 dist\rust\server\iago-server.exe serve
 ```
 
-On Windows, `iago-server` also has:
+If you launch `iago-server.exe` without arguments, it opens the REPL.
 
-- a system tray icon
-- an `Open Console` action when you click the tray icon or open the tray menu
-- a `Quit` action to stop the server cleanly
-
-Closing the console window does not stop the process. The tray icon keeps the server alive.
+Closing the console window does not stop the process. The server keeps running in the background.
 
 ### 8. Build the installer
 
@@ -169,16 +165,18 @@ The `iago-server` binary is the local companion process.
 - `repl`: Open the relay REPL.
 - `add`: Register a repository in the relay vault.
 - `set-port`: Update the shared relay config with a new server port.
+- `client help`: Show the `iago` client command reference.
 
-If you run the server without a command, it defaults to `serve`.
+If you run the server without a command, it defaults to `repl`.
 
 ### Shared Relay Config
 
 The client and server both read:
 
-- [`relay-config.json`](/workspace/tools-github-issues-resolver/relay-config.json)
+- `relay-config.json` in the shared app folder above the executables
 
 That file stores the current relay port. If you run `set-port`, both apps use the new port the next time they read the config.
+When you install IAGO, the file lives alongside the shared app folder that contains the `bin` directory.
 
 ### Default Network Settings
 
@@ -204,19 +202,18 @@ Inside the relay REPL:
 - `add`: Add or update a repository in the vault
 - `list`: Show stored repository entries
 - `set-port`: Update the shared relay config with a new server port
+- `client help`: Show the `iago` client command reference
 - `help`: Show REPL help
 - `quit`: Exit the REPL
 - `exit`: Same as `quit`
 
-### Windows Tray Behavior
+### Windows Console Behavior
 
 On Windows, `iago-server`:
 
 - embeds [`iago-icon.ico`](/workspace/tools-github-issues-resolver/iago-icon.ico) into the executable
-- shows the same icon in the system tray
 - keeps running if you close the console window
-- lets you reopen the console from the tray without relaunching
-- provides a `Quit` button in the tray menu
+- hides the console when you click `X`
 
 ## Windows Installer
 
@@ -251,5 +248,6 @@ The CLI and server share implementation details through [`src/rust/shared/src/re
 
 - If `sync` or `create-issue` fails with an authentication error, pass `--token` or set `GITHUB_TOKEN` / `GH_TOKEN`.
 - If the relay port is already in use, stop the old server or choose a different `--port` and update `relay-config.json` with `set-port`.
+- If `iago-server` says it cannot find the workspace root, make sure you are using the current build. The server now reads `relay-config.json` beside the executable instead of looking for `package.json` or `AGENT.md`.
 - If the installer build fails, check that Inno Setup is installed and `iscc.exe` is available on `PATH`.
 - If you are looking for the old file-based token lookup, it has been removed intentionally.

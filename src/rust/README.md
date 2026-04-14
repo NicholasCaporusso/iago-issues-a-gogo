@@ -47,24 +47,27 @@ The Rust CLI implements the local workflow:
 - `create-issue`
 - `set-port`
 
-The CLI talks to GitHub directly when you supply a token. It also reads and updates the shared relay port from `relay-config.json` at the workspace root.
+The CLI talks to GitHub directly when you supply a token. It also reads and updates the shared relay port from `relay-config.json` in the shared app folder above the executable.
 
 ## Server Behavior
 
 The Rust `iago-server` keeps the process alive in both `serve` and `repl` mode until you type `quit`, `exit`, or send EOF.
 
-On Windows, the server also shows a tray icon, lets you reopen the console from the tray, and includes a `Quit` action.
+On Windows, the server hides the console when you click `X` and keeps running in the background.
 
 The REPL accepts `list`, `add`, and `set-port`.
+It also accepts `client help` to show the client command reference.
 
-`iago-server` reads `relay-config.json` at the workspace root. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
+`iago-server` reads `relay-config.json` in the shared app folder above the executable. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
+
+Launching `iago-server.exe` without arguments opens the REPL.
 
 Vault tokens are encrypted at rest in `src/rust/server/vault/repos.json` using the compiled master key in [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
 Existing plaintext vault entries remain readable and are converted when the vault is saved again.
 
 ## Windows Icons
 
-Both Windows executables embed [`iago-icon.ico`](/workspace/tools-github-issues-resolver/iago-icon.ico), and the server uses the same icon in the tray.
+Both Windows executables embed [`iago-icon.ico`](/workspace/tools-github-issues-resolver/iago-icon.ico).
 
 ## Installer
 
@@ -73,7 +76,8 @@ The Windows installer:
 - installs both executables
 - adds the `iago` client directory to system `PATH`
 - can register `iago-server` to start when the computer starts
+- installs `relay-config.json` in the shared app folder so both apps share the same port setting
 
 ## Status
 
-The workspace is functional for the CLI build, server loop, tray behavior, and Windows packaging.
+The workspace is functional for the CLI build, server loop, console hide-on-close behavior, and Windows packaging.

@@ -26,7 +26,7 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT}
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
-use std::io::{self, BufRead, IsTerminal, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -47,7 +47,7 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let mut args = env::args().skip(1);
-    let command = args.next().unwrap_or_else(|| "serve".to_owned());
+    let command = args.next().unwrap_or_else(|| "repl".to_owned());
     let relay_port = read_relay_port()?;
 
     if matches!(command.as_str(), "--help" | "-h") {
@@ -84,7 +84,7 @@ fn run() -> Result<(), String> {
             }
             #[cfg(not(target_os = "windows"))]
             {
-                println!("{}", workspace_banner("iago-server repl"));
+                println!("IAGO (Issues A-GOgo) server");
                 run_repl_loop("iago-server> ", &options.vault_path, None, relay_port)?;
             }
         }
@@ -96,10 +96,13 @@ fn run() -> Result<(), String> {
             let options = parse_add_repo_options(&remaining_args, default_vault_path(), false)?;
             add_repo_command(&options)?;
         }
-            "set-port" => {
-                let options = parse_server_options(&remaining_args, relay_port)?;
-                set_port_command(&options)?;
-            }
+        "set-port" => {
+            let options = parse_server_options(&remaining_args, relay_port)?;
+            set_port_command(&options)?;
+        }
+        "client" if remaining_args.first().map(|value| value.as_str()) == Some("help") => {
+            print_client_help();
+        }
         other => {
             return Err(format!("Unsupported command: {other}"));
         }
@@ -115,47 +118,26 @@ fn run_windows_server_mode(
     open_repl: bool,
 ) -> Result<(), String> {
     let server = start_http_server(&options.host, options.port, &options.vault_path)?;
-    println!(
-        "{}",
-        workspace_banner(if open_repl {
-            "iago-server repl"
-        } else {
-            "iago-server serve"
-        })
-    );
+    let banner = if open_repl {
+        "IAGO (Issues A-GOgo) server".to_owned()
+    } else {
+        workspace_banner("iago-server serve")
+    };
+    println!("{}", banner);
     println!(
         "Listening on http://{}:{}",
         options.host, options.port
     );
 
-    let state = Arc::new(windows_app::TrayState {
-        vault_path: options.vault_path.clone(),
-        default_port: relay_port,
-        quit: Arc::new(AtomicBool::new(false)),
-        repl_active: Arc::new(AtomicBool::new(false)),
-    });
-
-    let tray_thread = windows_app::start_tray_controller(Arc::clone(&state))?;
-
     if open_repl {
-        let interactive_console = io::stdin().is_terminal() && io::stdout().is_terminal();
-        if interactive_console {
-            windows_app::show_console_and_spawn_repl(Arc::clone(&state), true, true)?;
-        } else {
-            run_repl_loop("iago-server> ", &options.vault_path, None, relay_port)?;
-            state.quit.store(true, Ordering::SeqCst);
-        }
+        windows_app::restore_console()?;
+        run_repl_loop("iago-server> ", &options.vault_path, None, relay_port)?;
+        server.stop();
+        return Ok(());
     }
 
-    wait_for_quit(&state.quit);
-    server.stop();
-    let _ = tray_thread.join();
-    Ok(())
-}
-
-fn wait_for_quit(flag: &Arc<AtomicBool>) {
-    while !flag.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_millis(100));
+    loop {
+        thread::sleep(Duration::from_secs(1));
     }
 }
 
@@ -486,6 +468,9 @@ fn run_repl_loop(
         match command.as_str() {
             "quit" | "exit" => break,
             "help" => print_repl_help(default_port),
+            "client" if command_args.first().map(|value| value.as_str()) == Some("help") => {
+                print_client_help();
+            }
             "list" => print_vault_entries(vault_path)?,
             "add" => {
                 let options = parse_add_repo_options(&command_args, vault_path.to_path_buf(), true)?;
@@ -1076,6 +1061,8 @@ fn print_repl_help(default_port: u16) {
     println!(
         "Commands:\n\
   help      Show this help.\n\
+  client    client help\n\
+            Show the client command reference.\n\
   list      list [--vault <path>]\n\
             Show repositories currently stored in the vault.\n\
   add       add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
@@ -1092,6 +1079,34 @@ Shared relay config:"
     println!("  {}", vault_path.display());
 }
 
+fn print_client_help() {
+    println!(
+        "iago\n\n\
+Usage:\n\
+  iago sync [--cwd <path>] [--remote <name>] [--token <token>] [--relay] [--relay-url <url>]\n\
+  iago list [--cwd <path>] [--all] [--json] [--output <path>]\n\
+  iago show --issue <number> [--cwd <path>] [--json] [--output <path>]\n\
+  iago start-issue --issue <number> [--cwd <path>]\n\
+  iago completed --issue <number> --files <paths>... [--cwd <path>] [--title <text>] [--description <text>] [--token <token>] [--push] [--branch <name>] [--json] [--relay] [--save]\n\
+  iago report --title <text> --description <text> --label <bug|improvement|feature> [--cwd <path>] [--token <token>] [--json] [--output <path>]\n\
+  iago create-issue --title <text> --description <text> --label <bug|improvement|feature> [--cwd <path>] [--token <token>] [--json] [--output <path>]\n\
+  iago set-port --port <number>\n\n\
+Commands:\n\
+  sync         Download open GitHub issues into the local backlog.\n\
+  list         Print issues from the local backlog.\n\
+  show         Print one issue from the local backlog.\n\
+  start-issue  Create or switch to the branch for an issue.\n\
+  completed    Stage files, commit the work, and close the issue.\n\
+  report       Create a new issue on the remote repository.\n\
+  create-issue Same as report.\n\
+  set-port     Update the shared relay config with a new server port.\n\n\
+Authentication:\n\
+  --token <token>\n\
+  GITHUB_TOKEN\n\
+  GH_TOKEN\n"
+    );
+}
+
 fn print_help(default_port: u16) -> Result<(), String> {
     let vault_path = default_vault_path();
     let config_path = relay_config_path()?;
@@ -1102,8 +1117,11 @@ Usage:\n\
   iago-server repl [--vault <path>]\n\
   iago-server list [--vault <path>]\n\
   iago-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
+  iago-server client help\n\
   iago-server set-port --port <port>\n\n\
-Shared relay config:"
+Default command:\n\
+  repl\n\n\
+Shared relay config:" 
     );
     println!("  {}", config_path.display());
     println!("  Default port: {}", default_port);

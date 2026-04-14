@@ -24,6 +24,7 @@ Name: "startup"; Description: "Run IAGO server at startup"; GroupDescription: "O
 [Files]
 Source: "..\..\..\dist\rust\cli\iago.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "..\..\..\dist\rust\server\iago-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "..\..\..\relay-config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\..\..\iago-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
@@ -32,7 +33,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Icons]
 Name: "{autoprograms}\IAGO"; Filename: "{app}\bin\iago.exe"
-Name: "{autoprograms}\IAGO Server"; Filename: "{app}\bin\iago-server.exe"
+Name: "{autoprograms}\IAGO Server"; Filename: "{app}\bin\iago-server.exe"; Parameters: "repl"
 
 [Code]
 function NeedsPathUpdate(): Boolean;
