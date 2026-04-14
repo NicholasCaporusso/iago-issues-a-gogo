@@ -1,0 +1,13 @@
+{
+  "name": "tools-github-issues-relay-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node ./server.js serve",
+    "serve": "node ./server.js serve"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

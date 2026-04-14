@@ -4,7 +4,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
+
+const DEFAULT_RELAY_URL = "http://127.0.0.1:4317";
 
 async function main() {
   try {
@@ -41,7 +45,7 @@ async function main() {
         renderSingleIssue(issue, options);
         return;
       }
-      case "report": {
+      case "start-issue": {
         const branchName = await startIssueBranch({
           issueNumber: options.issueNumber,
           repoRoot,
@@ -51,19 +55,27 @@ async function main() {
         return;
       }
       case "completed": {
-        const result = await commitIssueFix({
-          repoRoot,
-          files: options.files,
-          issueNumber: options.issueNumber,
-          title: options.title,
-          description: options.description,
-          push: options.push,
-          token: options.token,
-          remote: options.remote ?? "origin",
-          branch: options.branch,
-          lookupPath: options.lookupPath,
-          runner: options.runner
-        });
+        const result = options.relay
+          ? await relayCompleted(repoRoot, options)
+          : await commitIssueFix({
+            repoRoot,
+            files: options.files,
+            issueNumber: options.issueNumber,
+            title: options.title,
+            description: options.description,
+            push: options.push || options.save,
+            token: options.token,
+            remote: options.remote ?? "origin",
+            branch: options.branch,
+            lookupPath: options.lookupPath,
+            runner: options.runner
+          });
+
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+
         console.log(result.commitMessage);
         if (result.pushed) {
           console.log(`Pushed to ${result.remote}${result.branch ? ` (${result.branch})` : ""}`);
@@ -73,6 +85,7 @@ async function main() {
         }
         return;
       }
+      case "report":
       case "create-issue": {
         const createdIssue = await createRemoteIssue(repoRoot, options);
         if (options.json) {
@@ -106,8 +119,11 @@ function parseArgs(argv) {
     label: null,
     output: null,
     push: false,
+    relay: false,
+    relayUrl: DEFAULT_RELAY_URL,
     remote: null,
     runner: runGitCommand,
+    save: false,
     title: null,
     token: null
   };
@@ -145,6 +161,12 @@ function parseArgs(argv) {
       case "--output":
         options.output = requireValue(argv, ++index, "--output");
         break;
+      case "--relay":
+        options.relay = true;
+        break;
+      case "--relay-url":
+        options.relayUrl = requireValue(argv, ++index, "--relay-url");
+        break;
       case "--issue":
         options.issueNumber = parseIssueNumber(requireValue(argv, ++index, "--issue"));
         break;
@@ -159,6 +181,9 @@ function parseArgs(argv) {
         break;
       case "--push":
         options.push = true;
+        break;
+      case "--save":
+        options.save = true;
         break;
       case "--branch":
         options.branch = requireValue(argv, ++index, "--branch");
@@ -690,14 +715,12 @@ async function commitIssueFix({
     throw new Error("commitIssueFix requires --description or --title.");
   }
 
-  if (Array.isArray(files) && files.length > 0) {
-    await runner(["add", "--", ...files], repoRoot);
-  } else {
-    await runner(["add", "."], repoRoot);
-  }
-
   const commitMessage = buildIssueFixCommitMessage(issueNumber, { title, description });
-  await runner(buildCommitCommandArgs(commitMessage), repoRoot);
+  await createNativeGitCommit({
+    repoRoot,
+    files,
+    commitMessage
+  });
 
   if (push) {
     const pushArgs = branch
@@ -732,6 +755,54 @@ async function commitIssueFix({
   };
 }
 
+async function relayCompleted(repoRoot, options) {
+  const remoteName = options.remote ?? "origin";
+  const { remoteUrl } = await resolveRepositoryContext(repoRoot, remoteName);
+  const relayTarget = new URL("/completed", ensureRelayBaseUrl(options.relayUrl));
+  const response = await fetch(relayTarget, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "github-issues-resolver-relay-client"
+    },
+    body: JSON.stringify({
+      branch: options.branch,
+      description: options.description,
+        files: Array.isArray(options.files) ? options.files : [],
+        issueNumber: options.issueNumber,
+        push: options.push || options.save,
+        remote: remoteName,
+        repositoryFolder: path.resolve(repoRoot),
+        repositoryUrl: normalizeRepositoryRemote(remoteUrl),
+        save: options.save,
+        title: options.title
+      })
+  });
+  const body = await safeReadJson(response);
+
+  if (!response.ok) {
+    const message = body?.error ?? body?.message ?? `Relay request failed with HTTP ${response.status}.`;
+    throw new Error(message);
+  }
+
+  return {
+    branch: body.branch ?? options.branch ?? null,
+    closeIssueError: body.closeIssueError ? new Error(body.closeIssueError) : null,
+    closedIssue: body.closedIssue ?? null,
+    commitMessage: body.commitMessage ?? buildIssueFixCommitMessage(options.issueNumber, options),
+    files: Array.isArray(body.files) ? body.files : (Array.isArray(options.files) ? options.files : []),
+    issueNumber: body.issueNumber ?? options.issueNumber,
+    pushed: Boolean(body.pushed),
+    remote: body.remote ?? remoteName
+  };
+}
+
+function ensureRelayBaseUrl(value) {
+  const normalized = String(value ?? DEFAULT_RELAY_URL).trim();
+  return normalized.endsWith("/") ? normalized : `${normalized}/`;
+}
+
 function buildIssueFixCommitMessage(issueNumber, description) {
   const normalizedDescription = description.description?.trim();
   const normalizedTitle = description.title?.trim() ?? (
@@ -763,6 +834,528 @@ function buildCommitCommandArgs(commitMessage) {
   }
 
   return args;
+}
+
+async function createNativeGitCommit({
+  repoRoot,
+  files,
+  commitMessage
+}) {
+  const gitDir = await resolveGitDir(repoRoot);
+  const head = await readHeadReference(gitDir);
+  const parent = head.commitHash;
+  const trackedEntries = parent
+    ? await readTreeEntriesFromCommit(gitDir, parent)
+    : new Map();
+  const nextEntries = Array.isArray(files) && files.length > 0
+    ? await applySelectedWorkingTreeChanges(repoRoot, trackedEntries, files)
+    : await readWorkingTreeEntries(repoRoot);
+
+  if (areEntryMapsEqual(trackedEntries, nextEntries)) {
+    throw new Error("Nothing to commit.");
+  }
+
+  const treeHash = await writeTreeFromEntries(gitDir, nextEntries);
+  const identity = await resolveCommitIdentity(repoRoot, gitDir);
+  const commitHash = await writeCommitObject(gitDir, {
+    treeHash,
+    parent,
+    message: commitMessage,
+    identity
+  });
+
+  await updateGitReferences(gitDir, head, commitHash, commitMessage, identity);
+  await writeGitIndex(gitDir, repoRoot, nextEntries);
+  await fs.writeFile(path.join(gitDir, "COMMIT_EDITMSG"), `${commitMessage}\n`, "utf8");
+
+  return commitHash;
+}
+
+async function readHeadReference(gitDir) {
+  const headPath = path.join(gitDir, "HEAD");
+  const contents = (await fs.readFile(headPath, "utf8")).trim();
+
+  if (contents.startsWith("ref: ")) {
+    const ref = contents.slice(5).trim();
+    const refPath = path.join(gitDir, ...ref.split("/"));
+    let commitHash = null;
+
+    try {
+      commitHash = (await fs.readFile(refPath, "utf8")).trim() || null;
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    return {
+      headPath,
+      ref,
+      refPath,
+      commitHash
+    };
+  }
+
+  return {
+    headPath,
+    ref: null,
+    refPath: null,
+    commitHash: contents || null
+  };
+}
+
+async function readTreeEntriesFromCommit(gitDir, commitHash) {
+  const commitObject = await readGitObject(gitDir, commitHash);
+
+  if (commitObject.type !== "commit") {
+    throw new Error(`Object ${commitHash} is not a commit.`);
+  }
+
+  const commitText = commitObject.body.toString("utf8");
+  const treeMatch = commitText.match(/^tree ([0-9a-f]{40})$/m);
+
+  if (!treeMatch) {
+    throw new Error(`Commit ${commitHash} does not contain a tree.`);
+  }
+
+  return readTreeEntries(gitDir, treeMatch[1], "");
+}
+
+async function readTreeEntries(gitDir, treeHash, prefix) {
+  const treeObject = await readGitObject(gitDir, treeHash);
+
+  if (treeObject.type !== "tree") {
+    throw new Error(`Object ${treeHash} is not a tree.`);
+  }
+
+  const entries = new Map();
+  let offset = 0;
+
+  while (offset < treeObject.body.length) {
+    const spaceIndex = treeObject.body.indexOf(0x20, offset);
+    const mode = treeObject.body.slice(offset, spaceIndex).toString("utf8");
+    const nullIndex = treeObject.body.indexOf(0x00, spaceIndex + 1);
+    const name = treeObject.body.slice(spaceIndex + 1, nullIndex).toString("utf8");
+    const hash = treeObject.body.slice(nullIndex + 1, nullIndex + 21).toString("hex");
+    const entryPath = prefix ? `${prefix}/${name}` : name;
+    offset = nullIndex + 21;
+
+    if (mode === "40000") {
+      const childEntries = await readTreeEntries(gitDir, hash, entryPath);
+
+      for (const [childPath, childEntry] of childEntries) {
+        entries.set(childPath, childEntry);
+      }
+
+      continue;
+    }
+
+    entries.set(entryPath, {
+      hash,
+      mode
+    });
+  }
+
+  return entries;
+}
+
+async function readGitObject(gitDir, hash) {
+  const objectPath = path.join(gitDir, "objects", hash.slice(0, 2), hash.slice(2));
+  const compressed = await fs.readFile(objectPath);
+  const raw = zlib.inflateSync(compressed);
+  const separatorIndex = raw.indexOf(0x00);
+  const header = raw.slice(0, separatorIndex).toString("utf8");
+  const [type] = header.split(" ");
+
+  return {
+    type,
+    body: raw.slice(separatorIndex + 1)
+  };
+}
+
+async function applySelectedWorkingTreeChanges(repoRoot, trackedEntries, files) {
+  const nextEntries = new Map(trackedEntries);
+
+  for (const file of files) {
+    const normalizedPath = normalizeRepoRelativePath(file);
+    const absolutePath = path.resolve(repoRoot, normalizedPath);
+    const relativePath = path.relative(repoRoot, absolutePath);
+
+    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+      throw new Error(`File path is outside the repository: ${file}`);
+    }
+
+    let stats = null;
+
+    try {
+      stats = await fs.stat(absolutePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    if (!stats) {
+      nextEntries.delete(normalizedPath);
+      continue;
+    }
+
+    if (stats.isDirectory()) {
+      for (const entryPath of [...nextEntries.keys()]) {
+        if (entryPath === normalizedPath || entryPath.startsWith(`${normalizedPath}/`)) {
+          nextEntries.delete(entryPath);
+        }
+      }
+
+      const childEntries = await walkWorkingTree(repoRoot, absolutePath);
+
+      for (const [childPath, entry] of childEntries) {
+        nextEntries.set(childPath, entry);
+      }
+
+      continue;
+    }
+
+    const entry = await createWorkingTreeEntry(repoRoot, absolutePath);
+    nextEntries.set(normalizedPath, entry);
+  }
+
+  return nextEntries;
+}
+
+async function readWorkingTreeEntries(repoRoot) {
+  return walkWorkingTree(repoRoot, repoRoot);
+}
+
+async function walkWorkingTree(repoRoot, currentDir, ignoreRules = null, entries = new Map()) {
+  const activeRules = ignoreRules ?? await loadIgnoreRules(repoRoot);
+  const children = await fs.readdir(currentDir, { withFileTypes: true });
+
+  children.sort((left, right) => left.name.localeCompare(right.name));
+
+  for (const child of children) {
+    const absolutePath = path.join(currentDir, child.name);
+    const relativePath = normalizeRepoRelativePath(path.relative(repoRoot, absolutePath));
+
+    if (!relativePath || relativePath === ".git" || relativePath.startsWith(".git/")) {
+      continue;
+    }
+
+    const directoryPath = child.isDirectory() ? `${relativePath}/` : relativePath;
+
+    if (matchesIgnoreRules(directoryPath, child.isDirectory(), activeRules)) {
+      continue;
+    }
+
+    if (child.isDirectory()) {
+      await walkWorkingTree(repoRoot, absolutePath, activeRules, entries);
+      continue;
+    }
+
+    entries.set(relativePath, await createWorkingTreeEntry(repoRoot, absolutePath));
+  }
+
+  return entries;
+}
+
+async function loadIgnoreRules(repoRoot) {
+  const rules = [];
+
+  for (const ignorePath of [
+    path.join(repoRoot, ".gitignore"),
+    path.join(repoRoot, ".git", "info", "exclude")
+  ]) {
+    try {
+      const contents = await fs.readFile(ignorePath, "utf8");
+
+      for (const rawLine of contents.split(/\r?\n/)) {
+        const line = rawLine.trim();
+
+        if (!line || line.startsWith("#")) {
+          continue;
+        }
+
+        rules.push(line);
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return rules;
+}
+
+function matchesIgnoreRules(relativePath, isDirectory, rules) {
+  return rules.some((rule) => matchesSingleIgnoreRule(relativePath, isDirectory, rule));
+}
+
+function matchesSingleIgnoreRule(relativePath, isDirectory, rule) {
+  const normalizedRule = rule.replace(/\\/g, "/");
+
+  if (normalizedRule.endsWith("/")) {
+    const directoryRule = normalizedRule;
+    return isDirectory && relativePath === directoryRule.slice(0, -1)
+      || relativePath.startsWith(directoryRule);
+  }
+
+  if (normalizedRule.includes("*")) {
+    const pattern = `^${escapeRegExp(normalizedRule).replace(/\\\*/g, ".*")}$`;
+    return new RegExp(pattern, "i").test(relativePath);
+  }
+
+  return relativePath === normalizedRule || relativePath.endsWith(`/${normalizedRule}`);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+}
+
+async function createWorkingTreeEntry(repoRoot, absolutePath) {
+  const relativePath = normalizeRepoRelativePath(path.relative(repoRoot, absolutePath));
+  const contents = await fs.readFile(absolutePath);
+
+  return {
+    hash: await writeBlobObject(await resolveGitDir(repoRoot), contents),
+    mode: "100644"
+  };
+}
+
+async function writeBlobObject(gitDir, contents) {
+  return writeGitObject(gitDir, "blob", contents);
+}
+
+async function writeTreeFromEntries(gitDir, entries) {
+  const root = new Map();
+
+  for (const [entryPath, entry] of entries) {
+    const segments = entryPath.split("/");
+    let current = root;
+
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      const segment = segments[index];
+
+      if (!current.has(segment)) {
+        current.set(segment, new Map());
+      }
+
+      current = current.get(segment);
+    }
+
+    current.set(segments.at(-1), entry);
+  }
+
+  return writeTreeNode(gitDir, root);
+}
+
+async function writeTreeNode(gitDir, node) {
+  const parts = [];
+  const names = [...node.keys()].sort((left, right) => left.localeCompare(right));
+
+  for (const name of names) {
+    const value = node.get(name);
+    const isDirectory = value instanceof Map;
+    const hash = isDirectory
+      ? await writeTreeNode(gitDir, value)
+      : value.hash;
+    const mode = isDirectory ? "40000" : value.mode;
+    const header = Buffer.from(`${mode} ${name}\0`, "utf8");
+    const hashBuffer = Buffer.from(hash, "hex");
+
+    parts.push(header, hashBuffer);
+  }
+
+  return writeGitObject(gitDir, "tree", Buffer.concat(parts));
+}
+
+async function writeCommitObject(gitDir, { treeHash, parent, message, identity }) {
+  const lines = [
+    `tree ${treeHash}`
+  ];
+
+  if (parent) {
+    lines.push(`parent ${parent}`);
+  }
+
+  const signature = `${identity.name} <${identity.email}> ${identity.timestamp} ${identity.timezone}`;
+  lines.push(`author ${signature}`);
+  lines.push(`committer ${signature}`);
+  lines.push("");
+  lines.push(message);
+
+  return writeGitObject(gitDir, "commit", Buffer.from(lines.join("\n"), "utf8"));
+}
+
+async function writeGitObject(gitDir, type, body) {
+  const header = Buffer.from(`${type} ${body.length}\0`, "utf8");
+  const payload = Buffer.concat([header, body]);
+  const hash = crypto.createHash("sha1").update(payload).digest("hex");
+  const objectPath = path.join(gitDir, "objects", hash.slice(0, 2), hash.slice(2));
+
+  if (!await pathExists(objectPath)) {
+    await fs.mkdir(path.dirname(objectPath), { recursive: true });
+    await fs.writeFile(objectPath, zlib.deflateSync(payload));
+  }
+
+  return hash;
+}
+
+async function resolveCommitIdentity(repoRoot, gitDir) {
+  const config = await readCombinedGitConfig(repoRoot, gitDir);
+  const name = process.env.GIT_AUTHOR_NAME
+    ?? process.env.GIT_COMMITTER_NAME
+    ?? process.env.USERNAME
+    ?? config.get("user.name")
+    ?? "Codex";
+  const email = process.env.GIT_AUTHOR_EMAIL
+    ?? process.env.GIT_COMMITTER_EMAIL
+    ?? config.get("user.email")
+    ?? "codex@local";
+  const now = new Date();
+
+  return {
+    email,
+    name,
+    timestamp: Math.floor(now.getTime() / 1000),
+    timezone: formatTimezoneOffset(now.getTimezoneOffset())
+  };
+}
+
+async function readCombinedGitConfig(repoRoot, gitDir) {
+  const entries = new Map();
+
+  for (const configPath of [
+    path.join(process.env.USERPROFILE ?? "", ".gitconfig"),
+    path.join(repoRoot, ".git", "config"),
+    path.join(gitDir, "config")
+  ]) {
+    if (!configPath) {
+      continue;
+    }
+
+    try {
+      const contents = await fs.readFile(configPath, "utf8");
+      let section = null;
+
+      for (const rawLine of contents.split(/\r?\n/)) {
+        const line = rawLine.trim();
+
+        if (!line || line.startsWith("#") || line.startsWith(";")) {
+          continue;
+        }
+
+        const sectionMatch = line.match(/^\[([^\]]+)\]$/);
+
+        if (sectionMatch) {
+          section = sectionMatch[1].replace(/\s*".*?"\s*$/, "").trim().toLowerCase();
+          continue;
+        }
+
+        const kvMatch = line.match(/^([A-Za-z0-9.-]+)\s*=\s*(.+)$/);
+
+        if (section && kvMatch) {
+          entries.set(`${section}.${kvMatch[1].toLowerCase()}`, kvMatch[2].trim());
+        }
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  return entries;
+}
+
+function formatTimezoneOffset(offsetMinutes) {
+  const sign = offsetMinutes <= 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absoluteMinutes / 60)).padStart(2, "0");
+  const minutes = String(absoluteMinutes % 60).padStart(2, "0");
+  return `${sign}${hours}${minutes}`;
+}
+
+async function updateGitReferences(gitDir, head, commitHash, commitMessage, identity) {
+  if (head.ref && head.refPath) {
+    await fs.mkdir(path.dirname(head.refPath), { recursive: true });
+    await fs.writeFile(head.refPath, `${commitHash}\n`, "utf8");
+  } else {
+    await fs.writeFile(head.headPath, `${commitHash}\n`, "utf8");
+  }
+
+  await appendReflog(path.join(gitDir, "logs", "HEAD"), head.commitHash, commitHash, identity, commitMessage);
+
+  if (head.ref) {
+    await appendReflog(path.join(gitDir, "logs", ...head.ref.split("/")), head.commitHash, commitHash, identity, commitMessage);
+  }
+}
+
+async function appendReflog(logPath, oldHash, newHash, identity, message) {
+  await fs.mkdir(path.dirname(logPath), { recursive: true });
+  const previous = oldHash ?? "0".repeat(40);
+  const line = `${previous} ${newHash} ${identity.name} <${identity.email}> ${identity.timestamp} ${identity.timezone}\t${message}\n`;
+  await fs.appendFile(logPath, line, "utf8");
+}
+
+async function writeGitIndex(gitDir, repoRoot, entries) {
+  const header = Buffer.alloc(12);
+  header.write("DIRC", 0, "ascii");
+  header.writeUInt32BE(2, 4);
+  header.writeUInt32BE(entries.size, 8);
+
+  const buffers = [header];
+  const sortedEntries = [...entries.entries()].sort(([left], [right]) => left.localeCompare(right));
+
+  for (const [entryPath, entry] of sortedEntries) {
+    const absolutePath = path.join(repoRoot, ...entryPath.split("/"));
+    const stats = await fs.stat(absolutePath);
+    const pathBuffer = Buffer.from(entryPath, "utf8");
+    const entryBuffer = Buffer.alloc(62);
+    const ctimeMs = stats.birthtimeMs || stats.ctimeMs;
+    const mtimeMs = stats.mtimeMs;
+
+    entryBuffer.writeUInt32BE(Math.floor(ctimeMs / 1000), 0);
+    entryBuffer.writeUInt32BE(Math.floor((ctimeMs % 1000) * 1_000_000), 4);
+    entryBuffer.writeUInt32BE(Math.floor(mtimeMs / 1000), 8);
+    entryBuffer.writeUInt32BE(Math.floor((mtimeMs % 1000) * 1_000_000), 12);
+    entryBuffer.writeUInt32BE((stats.dev ?? 0) >>> 0, 16);
+    entryBuffer.writeUInt32BE((stats.ino ?? 0) >>> 0, 20);
+    entryBuffer.writeUInt32BE(parseInt(entry.mode, 8), 24);
+    entryBuffer.writeUInt32BE((stats.uid ?? 0) >>> 0, 28);
+    entryBuffer.writeUInt32BE((stats.gid ?? 0) >>> 0, 32);
+    entryBuffer.writeUInt32BE((stats.size ?? 0) >>> 0, 36);
+    Buffer.from(entry.hash, "hex").copy(entryBuffer, 40);
+    entryBuffer.writeUInt16BE(Math.min(pathBuffer.length, 0x0fff), 60);
+
+    const fullEntry = Buffer.concat([entryBuffer, pathBuffer, Buffer.from([0x00])]);
+    const padding = (8 - (fullEntry.length % 8)) % 8;
+    buffers.push(fullEntry, Buffer.alloc(padding));
+  }
+
+  const payload = Buffer.concat(buffers);
+  const checksum = crypto.createHash("sha1").update(payload).digest();
+  await fs.writeFile(path.join(gitDir, "index"), Buffer.concat([payload, checksum]));
+}
+
+function areEntryMapsEqual(left, right) {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const [entryPath, leftEntry] of left) {
+    const rightEntry = right.get(entryPath);
+
+    if (!rightEntry || rightEntry.hash !== leftEntry.hash || rightEntry.mode !== leftEntry.mode) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function normalizeRepoRelativePath(filePath) {
+  return filePath.split(path.sep).join("/").replace(/^\.\/+/, "").replace(/\/+/g, "/");
 }
 
 async function runGitCommand(args, cwd) {
@@ -1175,12 +1768,13 @@ function printHelp() {
 Usage:
   github-issues-resolver [command] [options]
 
-Commands:
+  Commands:
   sync                Download open issues and save backlog/issues.json.
   list                Read and print issues from backlog/issues.json.
   show                Print one issue from backlog/issues.json.
-  report         Create or switch to the branch for an issue.
-  completed           Stage files, commit progress for an issue, and optionally push.
+  start-issue         Create or switch to the branch for an issue.
+  completed           Stage files, commit progress for an issue, and close it.
+  report              Create a new issue on the remote repository.
   create-issue        Create a new issue on the remote repository.
 
   Options:
@@ -1188,13 +1782,16 @@ Commands:
     --remote <name>    Git remote to inspect. Defaults to "origin".
     --token <token>    GitHub token. Falls back to GITHUB_TOKEN or GH_TOKEN.
     --all              Include improvement and feature issues in list output.
-    --issue <number>   Issue number for show, report, or completed.
-    --title <text>     Issue title for create-issue or commit title for completed.
-    --description <t>  Issue description for create-issue or commit description/text for completed.
-      --label <name>     Issue label for create-issue. One of: bug, improvement, feature.
+    --issue <number>   Issue number for show, start-issue, or completed.
+    --title <text>     Issue title for report/create-issue or commit title for completed.
+    --description <t>  Issue description for report/create-issue or commit text for completed.
+    --label <name>     Issue label for report/create-issue. One of: bug, improvement, feature.
     --files <paths>    Files to stage for completed.
-  --push             Push after completed.
-  --branch <name>    Push target branch for completed.
+    --push             Push after completed.
+    --save             Ask the relay flow to push after completed.
+    --branch <name>    Push target branch for completed.
+    --relay            Send completed to the local relay server instead of committing directly.
+    --relay-url <url>  Relay server base URL. Defaults to http://127.0.0.1:4317.
   --json             Print the full result as JSON.
   --output <path>    Save the full result as JSON to a file.
   --help, -h         Show this help message.
@@ -1238,6 +1835,7 @@ export {
   parseArgs,
   parseGitHubRemote,
   requireGitHubToken,
+  relayCompleted,
   readTokenLookup,
   readExistingBacklog,
   readGitRemotes,
