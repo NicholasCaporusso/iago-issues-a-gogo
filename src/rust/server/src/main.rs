@@ -1,4 +1,6 @@
 mod config;
+#[cfg(target_os = "windows")]
+mod windows_app;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -24,7 +26,7 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT}
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, IsTerminal, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -58,19 +60,33 @@ fn run() -> Result<(), String> {
     match command.as_str() {
         "serve" => {
             let options = parse_server_options(&remaining_args, relay_port)?;
-            let server = start_http_server(&options.host, options.port, &options.vault_path)?;
-            println!("{}", workspace_banner("iago-server serve"));
-            println!(
-                "Listening on http://{}:{}",
-                options.host, options.port
-            );
-            run_repl_loop("iago-server> ", &options.vault_path, Some(&server), relay_port)?;
-            server.stop();
+            #[cfg(target_os = "windows")]
+            {
+                run_windows_server_mode(options, relay_port, false)?;
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let server = start_http_server(&options.host, options.port, &options.vault_path)?;
+                println!("{}", workspace_banner("iago-server serve"));
+                println!(
+                    "Listening on http://{}:{}",
+                    options.host, options.port
+                );
+                run_repl_loop("iago-server> ", &options.vault_path, Some(&server), relay_port)?;
+                server.stop();
+            }
         }
         "repl" => {
             let options = parse_server_options(&remaining_args, relay_port)?;
-            println!("{}", workspace_banner("iago-server repl"));
-            run_repl_loop("iago-server> ", &options.vault_path, None, relay_port)?;
+            #[cfg(target_os = "windows")]
+            {
+                run_windows_server_mode(options, relay_port, true)?;
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                println!("{}", workspace_banner("iago-server repl"));
+                run_repl_loop("iago-server> ", &options.vault_path, None, relay_port)?;
+            }
         }
         "list" => {
             let options = parse_server_options(&remaining_args, relay_port)?;
@@ -90,6 +106,57 @@ fn run() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_server_mode(
+    options: ServerOptions,
+    relay_port: u16,
+    open_repl: bool,
+) -> Result<(), String> {
+    let server = start_http_server(&options.host, options.port, &options.vault_path)?;
+    println!(
+        "{}",
+        workspace_banner(if open_repl {
+            "iago-server repl"
+        } else {
+            "iago-server serve"
+        })
+    );
+    println!(
+        "Listening on http://{}:{}",
+        options.host, options.port
+    );
+
+    let state = Arc::new(windows_app::TrayState {
+        vault_path: options.vault_path.clone(),
+        default_port: relay_port,
+        quit: Arc::new(AtomicBool::new(false)),
+        repl_active: Arc::new(AtomicBool::new(false)),
+    });
+
+    let tray_thread = windows_app::start_tray_controller(Arc::clone(&state))?;
+
+    if open_repl {
+        let interactive_console = io::stdin().is_terminal() && io::stdout().is_terminal();
+        if interactive_console {
+            windows_app::show_console_and_spawn_repl(Arc::clone(&state), true, true)?;
+        } else {
+            run_repl_loop("iago-server> ", &options.vault_path, None, relay_port)?;
+            state.quit.store(true, Ordering::SeqCst);
+        }
+    }
+
+    wait_for_quit(&state.quit);
+    server.stop();
+    let _ = tray_thread.join();
+    Ok(())
+}
+
+fn wait_for_quit(flag: &Arc<AtomicBool>) {
+    while !flag.load(Ordering::SeqCst) {
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 #[derive(Debug, Clone)]

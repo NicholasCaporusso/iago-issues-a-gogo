@@ -1,9 +1,10 @@
 # Rust Workspace
 
-This directory contains the Rust implementation of the project.
+This directory contains the Rust implementation of IAGO.
 
 It is split into three crates:
-- `shared`: common Git and repository helpers
+
+- `iago-shared`: common Git and repository helpers
 - `iago`: the CLI binary
 - `iago-server`: the server binary
 
@@ -23,12 +24,20 @@ powershell -File ./build/rust/server/build-windows-exe.ps1
 ```
 
 The build scripts place the finished executables in:
+
 - `dist/rust/cli/iago.exe`
 - `dist/rust/server/iago-server.exe`
 
-## CLI behavior
+To build the Windows installer, also install Inno Setup and run:
 
-The Rust CLI now implements the main local workflow:
+```powershell
+powershell -File ./build/windows/installer/build-installer.ps1
+```
+
+## CLI Behavior
+
+The Rust CLI implements the local workflow:
+
 - `sync`
 - `list`
 - `show`
@@ -40,16 +49,31 @@ The Rust CLI now implements the main local workflow:
 
 The CLI talks to GitHub directly when you supply a token. It also reads and updates the shared relay port from `relay-config.json` at the workspace root.
 
-## Server behavior
+## Server Behavior
 
-The Rust `iago-server` keeps the process alive in both `serve` and `repl` mode until you type `quit`, `exit`, or send EOF. The REPL accepts `list`, `add`, and `set-port`.
+The Rust `iago-server` keeps the process alive in both `serve` and `repl` mode until you type `quit`, `exit`, or send EOF.
 
-`iago-server` also reads `relay-config.json` at the workspace root. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
+On Windows, the server also shows a tray icon, lets you reopen the console from the tray, and includes a `Quit` action.
 
-Vault tokens are encrypted at rest in `src/rust/server/vault/repos.json` using the compiled master key in
-[`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
+The REPL accepts `list`, `add`, and `set-port`.
+
+`iago-server` reads `relay-config.json` at the workspace root. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
+
+Vault tokens are encrypted at rest in `src/rust/server/vault/repos.json` using the compiled master key in [`src/rust/server/src/config.rs`](/workspace/tools-github-issues-resolver/src/rust/server/src/config.rs).
 Existing plaintext vault entries remain readable and are converted when the vault is saved again.
+
+## Windows Icons
+
+Both Windows executables embed [`iago-icon.ico`](/workspace/tools-github-issues-resolver/iago-icon.ico), and the server uses the same icon in the tray.
+
+## Installer
+
+The Windows installer:
+
+- installs both executables
+- adds the `iago` client directory to system `PATH`
+- can register `iago-server` to start when the computer starts
 
 ## Status
 
-The workspace is functional for the CLI build and server loop, and it is ready for the rest of the relay translation.
+The workspace is functional for the CLI build, server loop, tray behavior, and Windows packaging.
