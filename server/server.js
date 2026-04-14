@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import http from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -12,11 +13,13 @@ import {
   findGitRoot,
   normalizeRepositoryRemote,
   syncIssues
-} from "../cli.js";
+} from "../cli/cli.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
 const DEFAULT_VAULT_PATH = path.join(getServerDir(), "vault", "repos.json");
+const VAULT_SECRET = crypto.createHash("sha256").update("tools-github-issues-resolver:relay-vault:v1").digest();
+const VAULT_TOKEN_PREFIX = "enc:v1";
 
 async function main() {
   try {
@@ -366,7 +369,10 @@ async function readVault(vaultPath) {
       return { repos: [] };
     }
 
-    return parsed;
+    return {
+      ...parsed,
+      repos: parsed.repos.map(decodeVaultRepo)
+    };
   } catch (error) {
     if (error?.code === "ENOENT") {
       return { repos: [] };
@@ -378,7 +384,70 @@ async function readVault(vaultPath) {
 
 async function writeVault(vaultPath, value) {
   await fs.mkdir(path.dirname(vaultPath), { recursive: true });
-  await fs.writeFile(vaultPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const serialized = {
+    ...value,
+    repos: Array.isArray(value?.repos) ? value.repos.map(encodeVaultRepo) : []
+  };
+  await fs.writeFile(vaultPath, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
+}
+
+function encodeVaultRepo(repo) {
+  return {
+    ...repo,
+    token: encryptVaultToken(repo.token)
+  };
+}
+
+function decodeVaultRepo(repo) {
+  return {
+    ...repo,
+    token: decryptVaultToken(repo.token)
+  };
+}
+
+function encryptVaultToken(token) {
+  if (typeof token !== "string" || token.length === 0) {
+    throw new Error("The relay vault requires a token to encrypt.");
+  }
+
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", VAULT_SECRET, iv);
+  const encrypted = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  return [
+    VAULT_TOKEN_PREFIX,
+    iv.toString("hex"),
+    authTag.toString("hex"),
+    encrypted.toString("hex")
+  ].join(":");
+}
+
+function decryptVaultToken(token) {
+  if (typeof token !== "string" || !token.startsWith(`${VAULT_TOKEN_PREFIX}:`)) {
+    return token;
+  }
+
+  const parts = token.split(":");
+  if (parts.length !== 4) {
+    throw new Error("The relay vault contains an invalid encrypted token.");
+  }
+
+  const [, ivHex, authTagHex, encryptedHex] = parts;
+  const decipher = crypto.createDecipheriv(
+    "aes-256-gcm",
+    VAULT_SECRET,
+    Buffer.from(ivHex, "hex")
+  );
+
+  decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
+
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(encryptedHex, "hex")),
+    decipher.final()
+  ]);
+
+  return decrypted.toString("utf8");
 }
 
 async function readJsonBody(request) {
