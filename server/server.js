@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import readline from "node:readline/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
@@ -28,6 +29,9 @@ async function main() {
     switch (options.command) {
       case "serve":
         await serveRelay(options);
+        return;
+      case "repl":
+        await startVaultRepl(options);
         return;
       case "add-repo":
         await addRepoCommand(options);
@@ -183,6 +187,51 @@ async function serveRelay(options) {
   });
 
   console.log(`Relay server listening on http://${options.host}:${options.port}`);
+}
+
+async function startVaultRepl(options) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  console.log("Relay vault REPL");
+  console.log("Type 'help' for commands, or 'exit' to quit.");
+
+  try {
+    while (true) {
+      const command = (await rl.question("relay> ")).trim().toLowerCase();
+
+      if (!command) {
+        continue;
+      }
+
+      if (command === "exit" || command === "quit") {
+        break;
+      }
+
+      if (command === "help") {
+        printReplHelp();
+        continue;
+      }
+
+      if (command === "list") {
+        await printVaultEntries(options.vaultPath);
+        continue;
+      }
+
+      if (command === "add-repo") {
+        const repoOptions = await promptForRepoEntry(rl, options.vaultPath);
+        await addRepoCommand(repoOptions);
+        continue;
+      }
+
+      console.log(`Unknown command: ${command}`);
+      printReplHelp();
+    }
+  } finally {
+    rl.close();
+  }
 }
 
 async function handleCompletedRelay(payload, vaultPath) {
@@ -482,6 +531,7 @@ function printHelp() {
 
 Usage:
   node ./server.js serve [--host 127.0.0.1] [--port 4317]
+  node ./server.js repl
   node ./server.js add-repo --url <repository-url> --folder <repository-folder> --token <github-token>
 
 Options:
@@ -492,6 +542,43 @@ Options:
   --folder <path>   Repository folder to register in the vault.
   --token <token>   GitHub token stored in the relay vault for this repo.
 `);
+}
+
+function printReplHelp() {
+  console.log(`
+Commands:
+  add-repo  Add or update a repository in the relay vault.
+  list      Show the repositories currently stored in the vault.
+  help      Show this help.
+  exit      Leave the REPL.
+`);
+}
+
+async function promptForRepoEntry(rl, vaultPath) {
+  const repositoryUrl = (await rl.question("Repository URL: ")).trim();
+  const folder = (await rl.question("Repository folder: ")).trim();
+  const token = (await rl.question("GitHub token: ")).trim();
+
+  return {
+    command: "add-repo",
+    folder,
+    token,
+    url: repositoryUrl,
+    vaultPath
+  };
+}
+
+async function printVaultEntries(vaultPath) {
+  const vault = await readVault(vaultPath);
+
+  if (!vault.repos.length) {
+    console.log("No repositories are stored in the vault.");
+    return;
+  }
+
+  for (const repo of vault.repos) {
+    console.log(`- ${repo.repositoryUrl} -> ${repo.folder}`);
+  }
 }
 
 function getServerDir() {

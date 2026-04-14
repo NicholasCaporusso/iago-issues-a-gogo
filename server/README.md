@@ -10,6 +10,14 @@ node ./server.js serve
 
 The server listens on `127.0.0.1:4317` by default.
 
+## Open The REPL
+
+```bash
+node ./server.js repl
+```
+
+The REPL accepts `add-repo` to register or update repositories, `list` to inspect the vault, and `exit` to quit.
+
 ## Register A Repository
 
 ```bash
