@@ -8,7 +8,7 @@ This folder contains a separate local process that can accept `completed --relay
 node ./server.js serve
 ```
 
-The server listens on `127.0.0.1:4317` by default.
+The server listens on `127.0.0.1:4317` by default and opens the REPL in the same process.
 
 If you install the root package globally, the relay server is also exposed as `issues-relay-server`.
 
@@ -18,7 +18,16 @@ If you install the root package globally, the relay server is also exposed as `i
 node ./server.js repl
 ```
 
-The REPL accepts `add-repo` to register or update repositories, `list` to inspect the vault, and `exit` to quit.
+The REPL accepts `add` to register or update repositories, `list` to inspect the vault, and `quit` to leave.
+
+Examples:
+
+```bash
+add --url https://github.com/owner/repo.git --folder C:\path\to\repo --token ghp_example
+add --url https://github.com/owner/repo.git
+```
+
+If you omit any of the `add` fields, the REPL prompts for the missing values.
 
 ## Register A Repository
 

@@ -20,7 +20,8 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
 const DEFAULT_VAULT_PATH = path.join(getServerDir(), "vault", "repos.json");
 const VAULT_SECRET = crypto.createHash("sha256").update("tools-github-issues-resolver:relay-vault:v1").digest();
-const VAULT_TOKEN_PREFIX = "enc:v1";
+const VAULT_TOKEN_PREFIX = "enc";
+const VAULT_TOKEN_VERSION = "v1";
 
 async function main() {
   try {
@@ -187,41 +188,62 @@ async function serveRelay(options) {
   });
 
   console.log(`Relay server listening on http://${options.host}:${options.port}`);
+  await startVaultRepl(options, {
+    onQuit: async () => {
+      await closeServer(server);
+    }
+  });
 }
 
-async function startVaultRepl(options) {
+async function startVaultRepl(options, hooks = {}) {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
   });
 
   console.log("Relay vault REPL");
-  console.log("Type 'help' for commands, or 'exit' to quit.");
+  console.log("Type 'help' for commands, or 'quit' to exit.");
 
   try {
     while (true) {
-      const command = (await rl.question("relay> ")).trim().toLowerCase();
+      let input;
 
-      if (!command) {
+      try {
+        input = (await rl.question("relay> ")).trim();
+      } catch (error) {
+        if (error?.code === "ERR_USE_AFTER_CLOSE" || /readline was closed/i.test(error?.message ?? "")) {
+          break;
+        }
+
+        throw error;
+      }
+
+      if (!input) {
         continue;
       }
 
-      if (command === "exit" || command === "quit") {
+      const [command, ...args] = parseReplInput(input);
+      const normalizedCommand = command.toLowerCase();
+
+      if (normalizedCommand === "exit" || normalizedCommand === "quit") {
+        if (typeof hooks.onQuit === "function") {
+          await hooks.onQuit();
+        }
         break;
       }
 
-      if (command === "help") {
+      if (normalizedCommand === "help") {
         printReplHelp();
         continue;
       }
 
-      if (command === "list") {
+      if (normalizedCommand === "list") {
         await printVaultEntries(options.vaultPath);
         continue;
       }
 
-      if (command === "add-repo") {
-        const repoOptions = await promptForRepoEntry(rl, options.vaultPath);
+      if (normalizedCommand === "add" || normalizedCommand === "add-repo") {
+        const repoOptions = await buildRepoEntryFromReplArgs(rl, options.vaultPath, args);
         await addRepoCommand(repoOptions);
         continue;
       }
@@ -466,6 +488,7 @@ function encryptVaultToken(token) {
 
   return [
     VAULT_TOKEN_PREFIX,
+    VAULT_TOKEN_VERSION,
     iv.toString("hex"),
     authTag.toString("hex"),
     encrypted.toString("hex")
@@ -478,11 +501,11 @@ function decryptVaultToken(token) {
   }
 
   const parts = token.split(":");
-  if (parts.length !== 4) {
+  if (parts.length !== 5 || parts[0] !== VAULT_TOKEN_PREFIX || parts[1] !== VAULT_TOKEN_VERSION) {
     throw new Error("The relay vault contains an invalid encrypted token.");
   }
 
-  const [, ivHex, authTagHex, encryptedHex] = parts;
+  const [, , ivHex, authTagHex, encryptedHex] = parts;
   const decipher = crypto.createDecipheriv(
     "aes-256-gcm",
     VAULT_SECRET,
@@ -541,23 +564,27 @@ Options:
   --url <url>       Repository URL to register in the vault.
   --folder <path>   Repository folder to register in the vault.
   --token <token>   GitHub token stored in the relay vault for this repo.
+
+The serve command starts the HTTP listener and opens the REPL in the same process.
 `);
 }
 
 function printReplHelp() {
   console.log(`
 Commands:
-  add-repo  Add or update a repository in the relay vault.
+  add [--url <url>] [--folder <path>] [--token <token>]
+            Add or update a repository in the relay vault.
   list      Show the repositories currently stored in the vault.
   help      Show this help.
-  exit      Leave the REPL.
+  quit      Leave the REPL and stop the HTTP server when running under serve.
 `);
 }
 
-async function promptForRepoEntry(rl, vaultPath) {
-  const repositoryUrl = (await rl.question("Repository URL: ")).trim();
-  const folder = (await rl.question("Repository folder: ")).trim();
-  const token = (await rl.question("GitHub token: ")).trim();
+async function buildRepoEntryFromReplArgs(rl, vaultPath, args) {
+  const parsed = parseReplFlags(args);
+  const repositoryUrl = parsed.url ?? (await rl.question("Repository URL: ")).trim();
+  const folder = parsed.folder ?? (await rl.question("Repository folder: ")).trim();
+  const token = parsed.token ?? (await rl.question("GitHub token: ")).trim();
 
   return {
     command: "add-repo",
@@ -566,6 +593,56 @@ async function promptForRepoEntry(rl, vaultPath) {
     url: repositoryUrl,
     vaultPath
   };
+}
+
+function parseReplInput(input) {
+  const tokens = input.match(/"([^"]*)"|'([^']*)'|(?:\S+)/g) ?? [];
+
+  return tokens.map((token) => {
+    if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) {
+      return token.slice(1, -1);
+    }
+
+    return token;
+  });
+}
+
+function parseReplFlags(args) {
+  const result = {
+    folder: null,
+    token: null,
+    url: null
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const current = args[index];
+
+    switch (current) {
+      case "--url":
+        result.url = requireReplValue(args, ++index, "--url");
+        break;
+      case "--folder":
+        result.folder = requireReplValue(args, ++index, "--folder");
+        break;
+      case "--token":
+        result.token = requireReplValue(args, ++index, "--token");
+        break;
+      default:
+        throw new Error(`Unknown REPL argument: ${current}`);
+    }
+  }
+
+  return result;
+}
+
+function requireReplValue(args, index, flagName) {
+  const value = args[index];
+
+  if (!value || value.startsWith("--")) {
+    throw new Error(`Missing value for ${flagName}.`);
+  }
+
+  return value;
 }
 
 async function printVaultEntries(vaultPath) {
@@ -579,6 +656,19 @@ async function printVaultEntries(vaultPath) {
   for (const repo of vault.repos) {
     console.log(`- ${repo.repositoryUrl} -> ${repo.folder}`);
   }
+}
+
+async function closeServer(server) {
+  await new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
 }
 
 function getServerDir() {

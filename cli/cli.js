@@ -480,7 +480,12 @@ async function syncIssues(repoRoot, options) {
   const token = await requireGitHubToken(options, remoteUrl);
   const backlogPath = path.join(repoRoot, BACKLOG_DIR_NAME, "issues.json");
   const existingBacklog = await readExistingBacklog(backlogPath);
-  const issues = await fetchOpenIssues(repository, token, repoRoot, existingBacklog);
+  const issues = await fetchOpenIssues(repository, token, {
+    existingBacklog,
+    remoteName,
+    remoteUrl,
+    repoRoot
+  });
   const result = {
     repository: `${repository.owner}/${repository.repo}`,
     host: repository.host,
@@ -527,6 +532,8 @@ async function createRemoteIssue(repoRoot, options) {
     throw new Error(buildRepositoryApiError({
       action: "create issue",
       repository,
+      remoteName,
+      remoteUrl,
       tokenPresent: Boolean(token),
       response,
       body
@@ -570,6 +577,8 @@ async function closeRemoteIssue(repoRoot, options) {
     throw new Error(buildRepositoryApiError({
       action: `close issue #${issueNumber}`,
       repository,
+      remoteName,
+      remoteUrl,
       tokenPresent: Boolean(token),
       response,
       body
@@ -1427,7 +1436,12 @@ async function runGitCommand(args, cwd) {
   });
 }
 
-async function fetchOpenIssues(repository, token, repoRoot = process.cwd(), existingBacklog = { issues: [] }) {
+async function fetchOpenIssues(repository, token, {
+  existingBacklog = { issues: [] },
+  remoteName = "origin",
+  remoteUrl = null,
+  repoRoot = process.cwd()
+} = {}) {
   const issues = [];
   let page = 1;
   const existingIssues = new Map(
@@ -1440,9 +1454,21 @@ async function fetchOpenIssues(repository, token, repoRoot = process.cwd(), exis
     url.searchParams.set("per_page", "100");
     url.searchParams.set("page", String(page));
 
-    const response = await fetch(url, {
-      headers: buildHeaders(token)
-    });
+    let response;
+
+    try {
+      response = await fetch(url, {
+        headers: buildHeaders(token)
+      });
+    } catch (error) {
+      throw new Error(buildRepositoryFetchError({
+        action: "fetch issues",
+        error,
+        remoteName,
+        remoteUrl,
+        repository
+      }));
+    }
 
     if (response.status === 401 || response.status === 403) {
       const body = await safeReadJson(response);
@@ -1455,6 +1481,8 @@ async function fetchOpenIssues(repository, token, repoRoot = process.cwd(), exis
       throw new Error(buildRepositoryApiError({
         action: "fetch issues",
         repository,
+        remoteName,
+        remoteUrl,
         tokenPresent: Boolean(token),
         response,
         body
@@ -1775,18 +1803,72 @@ function getDefaultLookupPath() {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "lookup.tsv");
 }
 
-function buildRepositoryApiError({ action, repository, tokenPresent, response, body }) {
+function formatRemoteLabel(remoteName, remoteUrl) {
+  if (remoteName && remoteUrl) {
+    return `${remoteName} (${remoteUrl})`;
+  }
+
+  if (remoteName) {
+    return remoteName;
+  }
+
+  if (remoteUrl) {
+    return remoteUrl;
+  }
+
+  return "remote";
+}
+
+function buildRepositoryApiError({
+  action,
+  repository,
+  remoteName = null,
+  remoteUrl = null,
+  tokenPresent,
+  response,
+  body
+}) {
   const reason = body?.message ?? `GitHub API returned ${response.status}.`;
+  const remoteLabel = formatRemoteLabel(remoteName, remoteUrl);
 
   if (response.status === 404) {
     const repoName = `${repository.owner}/${repository.repo}`;
     const authHint = tokenPresent
       ? "The remote may be wrong, the repository may not exist, or issues may be disabled."
       : "If this repository is private, GitHub returns 404 unless you provide --token, GITHUB_TOKEN, or GH_TOKEN.";
-    return `Failed to ${action} for ${repoName}: ${reason}. ${authHint}`;
+    return `Failed to ${action} from ${remoteLabel} for ${repoName}: ${reason}. ${authHint}`;
   }
 
-  return `Failed to ${action}: ${reason}`;
+  return `Failed to ${action} from ${remoteLabel}: ${reason}`;
+}
+
+function buildRepositoryFetchError({
+  action,
+  error,
+  repository,
+  remoteName = null,
+  remoteUrl = null
+}) {
+  const remoteLabel = formatRemoteLabel(remoteName, remoteUrl);
+  const repoName = `${repository.owner}/${repository.repo}`;
+  const causeCode = error?.cause?.code ?? error?.code ?? null;
+  const causeMessage = error?.cause?.message ?? error?.message ?? "Unknown network error.";
+  const lowerMessage = causeMessage.toLowerCase();
+  let causeDescription = causeMessage;
+
+  if (causeCode) {
+    if (/^(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH)$/i.test(causeCode)) {
+      causeDescription = `network failure (${causeCode})`;
+    } else if (/CERT|TLS|SSL/i.test(causeCode) || /certificate|tls|ssl/i.test(lowerMessage)) {
+      causeDescription = `TLS or certificate failure (${causeCode})`;
+    } else {
+      causeDescription = `${causeMessage} (${causeCode})`;
+    }
+  } else if (/fetch failed/i.test(lowerMessage)) {
+    causeDescription = "network failure while contacting GitHub";
+  }
+
+  return `Failed to ${action} from ${remoteLabel} for ${repoName}: ${causeDescription}. Check network connectivity, authentication, and repository configuration.`;
 }
 
 async function safeReadJson(response) {
