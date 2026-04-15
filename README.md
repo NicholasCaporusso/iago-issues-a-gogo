@@ -165,6 +165,7 @@ The `iago-server` binary is the local companion process.
 - `serve`: Start the listener and keep the process alive.
 - `repl`: Open the relay REPL.
 - `add`: Register a repository in the relay vault.
+- `issues`: Print issue counts for each repository in the relay vault without downloading the full issue list.
 - `set-port`: Update the shared relay config with a new server port.
 - `about`: Show project ownership and contact information.
 - `client help`: Show the `iago` client command reference.
@@ -205,6 +206,7 @@ Inside the relay REPL:
 
 - `add`: Add or update a repository in the vault
 - `list`: Show stored repository entries
+- `issues`: Print issue counts for each repository in the vault without downloading the full issue list
 - `set-port`: Update the shared relay config with a new server port
 - `about`: Show project ownership and contact information
 - `client help`: Show the `iago` client command reference
@@ -229,6 +231,7 @@ The installer:
 - installs both `iago.exe` and `iago-server.exe`
 - adds the client directory to system `PATH`
 - can register `iago-server` to start when the computer starts
+- includes Start Menu entries for the client, the relay REPL, and the relay `issues` command
 - uses [`assets/iago-icon.ico`](/workspace/tools-github-issues-resolver/assets/iago-icon.ico) for the installer and app icons
 
 Build it with:

@@ -47,7 +47,7 @@ fn run() -> Result<(), String> {
         "sync" => {
             let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
             let backlog = sync_issues(&repo_root, &options)?;
-            render_issue_collection(&filter_backlog_issues(&backlog, options.all), &options)?;
+            render_issue_collection(&backlog, &options)?;
         }
         "list" => {
             let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
@@ -73,7 +73,11 @@ fn run() -> Result<(), String> {
         }
         "completed" => {
             let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
-            let result = commit_issue_fix(&repo_root, &options)?;
+            let result = if options.relay {
+                relay_completed(&repo_root, &options)?
+            } else {
+                commit_issue_fix(&repo_root, &options)?
+            };
 
             if options.json {
                 println!("{}", serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?);
@@ -143,7 +147,8 @@ struct Options {
     token: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CompletedResult {
     branch: Option<String>,
     close_issue_error: Option<String>,
@@ -156,12 +161,51 @@ struct CompletedResult {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CreatedIssue {
     number: u64,
     title: String,
     description: String,
     html_url: String,
     state: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RelayCompletedResponse {
+    branch: Option<String>,
+    close_issue_error: Option<String>,
+    closed_issue: Option<CloseIssueResult>,
+    commit_message: Option<String>,
+    files: Option<Vec<String>>,
+    issue_number: Option<u64>,
+    pushed: Option<bool>,
+    remote: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RelaySyncResponse {
+    #[serde(default)]
+    repository: Option<String>,
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    remote: Option<String>,
+    #[serde(default, alias = "remoteUrl")]
+    remote_url: Option<String>,
+    #[serde(default, alias = "issueCount")]
+    issue_count: usize,
+    #[serde(default)]
+    issues: Vec<Issue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CloseIssueResult {
+    number: u64,
+    state: String,
+    title: String,
+    html_url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -279,7 +323,7 @@ fn parse_args(argv: Vec<String>, default_relay_port: u16) -> Result<Options, Str
             }
             "--label" => {
                 index += 1;
-                options.label = Some(parse_issue_label(&require_value(&argv, index, "--label")?)?);
+                options.label = Some(require_value(&argv, index, "--label")?);
             }
             "--push" => {
                 options.push = true;
@@ -344,16 +388,6 @@ fn parse_issue_number(value: &str) -> Result<u64, String> {
     value
         .parse::<u64>()
         .map_err(|_| format!("Invalid issue number: {value}"))
-}
-
-fn parse_issue_label(value: &str) -> Result<String, String> {
-    let normalized = value.trim().to_lowercase();
-    match normalized.as_str() {
-        "bug" | "improvement" | "feature" => Ok(normalized),
-        _ => Err(format!(
-            "Invalid label: {value}. Allowed labels are bug, improvement, feature."
-        )),
-    }
 }
 
 fn read_files_list(argv: &[String], start_index: usize) -> Vec<String> {
@@ -478,6 +512,10 @@ fn commit_issue_fix(repo_root: &Path, options: &Options) -> Result<CompletedResu
         run_git_command(args.iter().map(String::as_str), repo_root)?;
     }
 
+    if run_git_command(["status", "--porcelain"], repo_root)?.trim().is_empty() {
+        return Err("Nothing to commit.".to_owned());
+    }
+
     let commit_message = build_issue_fix_commit_message(
         issue_number,
         options.title.as_deref(),
@@ -544,7 +582,11 @@ fn create_remote_issue(repo_root: &Path, options: &Options) -> Result<CreatedIss
         "body": options.description.as_deref().unwrap_or("").trim(),
     });
 
-    if let Some(label) = &options.label {
+    if let Some(label) = options
+        .label
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         body["labels"] = json!([label]);
     }
 
@@ -570,6 +612,65 @@ fn create_remote_issue(repo_root: &Path, options: &Options) -> Result<CreatedIss
         description: created.body.unwrap_or_default(),
         html_url: created.html_url,
         state: created.state,
+    })
+}
+
+fn relay_completed(repo_root: &Path, options: &Options) -> Result<CompletedResult, String> {
+    let remote_name = options.remote.clone().unwrap_or_else(|| "origin".to_owned());
+    let context = resolve_repository_context(repo_root, &remote_name)?;
+    let relay_target = new_relay_url(options.relay_url.as_str(), "/completed")?;
+    let client = Client::new();
+    let response = client
+        .post(relay_target)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "iago-relay-client")
+        .json(&json!({
+            "branch": options.branch,
+            "description": options.description,
+            "files": options.files,
+            "issueNumber": options.issue_number,
+            "push": options.push || options.save,
+            "remote": remote_name,
+            "repositoryFolder": repo_root.display().to_string(),
+            "repositoryUrl": iago_shared::normalize_repository_remote(&context.remote_url),
+            "save": options.save,
+            "title": options.title
+        }))
+        .send()
+        .map_err(|error| format!("Failed to complete via relay: {error}"))?;
+
+    let body: serde_json::Value = response
+        .json()
+        .map_err(|error| format!("Failed to decode relay response: {error}"))?;
+
+    if !body.get("ok").and_then(|value| value.as_bool()).unwrap_or(false) {
+        let message = body
+            .get("error")
+            .and_then(|value| value.as_str())
+            .or_else(|| body.get("message").and_then(|value| value.as_str()))
+            .unwrap_or("Relay request failed.");
+        return Err(message.to_owned());
+    }
+
+    let relay_response: RelayCompletedResponse = serde_json::from_value(body)
+        .map_err(|error| format!("Failed to decode relay response: {error}"))?;
+
+    Ok(CompletedResult {
+        branch: relay_response.branch.or_else(|| options.branch.clone()),
+        close_issue_error: relay_response.close_issue_error,
+        closed_issue: relay_response.closed_issue,
+        commit_message: relay_response
+            .commit_message
+            .unwrap_or_else(|| build_issue_fix_commit_message(
+                options.issue_number.unwrap_or(0),
+                options.title.as_deref(),
+                options.description.as_deref(),
+            )),
+        files: relay_response.files.unwrap_or_else(|| options.files.clone()),
+        issue_number: relay_response.issue_number.unwrap_or(options.issue_number.unwrap_or(0)),
+        pushed: relay_response.pushed.unwrap_or_else(|| options.push || options.save),
+        remote: relay_response.remote.unwrap_or(remote_name),
     })
 }
 
@@ -629,9 +730,30 @@ fn relay_sync(
         .send()
         .map_err(|error| format!("Failed to sync via relay: {error}"))?;
 
-    let backlog: Backlog = response
+    let status = response.status();
+    let body: serde_json::Value = response
         .json()
         .map_err(|error| format!("Failed to decode relay response: {error}"))?;
+
+    if !status.is_success() {
+        let message = body
+            .get("error")
+            .and_then(|value| value.as_str())
+            .or_else(|| body.get("message").and_then(|value| value.as_str()))
+            .unwrap_or("Relay sync failed.");
+        return Err(message.to_owned());
+    }
+
+    let relay_backlog: RelaySyncResponse = serde_json::from_value(body)
+        .map_err(|error| format!("Failed to decode relay response: {error}"))?;
+    let backlog = Backlog {
+        repository: relay_backlog.repository,
+        host: relay_backlog.host,
+        remote: relay_backlog.remote,
+        remote_url: relay_backlog.remote_url,
+        issue_count: relay_backlog.issue_count.max(relay_backlog.issues.len()),
+        issues: relay_backlog.issues,
+    };
 
     if let Some(output) = &options.output {
         write_backlog(Path::new(output), &backlog)?;
@@ -694,17 +816,7 @@ fn close_remote_issue(repo_root: &Path, options: &Options) -> Result<CloseIssueR
         state: closed.state,
         title: closed.title,
         html_url: closed.html_url,
-        error: None,
     })
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct CloseIssueResult {
-    number: u64,
-    state: String,
-    title: String,
-    html_url: String,
-    error: Option<String>,
 }
 
 fn update_backlog_issue_state(repo_root: &Path, issue_number: u64, state: &str) -> Result<(), String> {

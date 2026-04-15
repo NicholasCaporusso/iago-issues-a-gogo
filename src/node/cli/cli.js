@@ -39,7 +39,7 @@ async function main() {
         const result = options.token
           ? await shared.syncIssues(repoRoot, options)
           : await relaySync(repoRoot, options);
-        renderIssueCollection(filterOpenIssues(result, options),options);
+        renderIssueCollection(result, options);
         return;
       }
       case "list": {
@@ -663,8 +663,9 @@ function filterOpenIssues(backlog, options = {}) {
 }
 
 function renderIssueCollection(result, options) {
+  const issueCount = getBacklogIssueCount(result);
   if (options.output) {
-      console.log(`Saved ${result.issueCount} open issues to ${path.resolve(process.cwd(), options.output)}`);
+      console.log(`Saved ${issueCount} open issues to ${path.resolve(process.cwd(), options.output)}`);
     return;
   }
 
@@ -675,7 +676,7 @@ function renderIssueCollection(result, options) {
 
   //console.log(`Repository: ${result.repository}`);
   //console.log(`Remote: ${result.remote} (${result.remoteUrl})`);
-  console.log(`# Open issues: ${result.issueCount}`);
+  console.log(`# Open issues: ${issueCount}`);
 
   if ((result.issues ?? []).length === 0) {
     console.log("No open issues found.");
@@ -686,6 +687,23 @@ function renderIssueCollection(result, options) {
     const labels = issue.labels.length > 0 ? ` [${issue.labels.join(", ")}]` : "";
     console.log(`- Issue ${issue.number}: ${issue.title}${labels}`);
   }
+}
+
+function getBacklogIssueCount(backlog) {
+  const issueCount = backlog?.issueCount ?? backlog?.issue_count ?? 0;
+  return Number.isFinite(issueCount) ? issueCount : 0;
+}
+
+function normalizeBacklogResponse(backlog) {
+  if (!backlog || typeof backlog !== "object") {
+    return { issueCount: 0, issues: [] };
+  }
+
+  return {
+    ...backlog,
+    issueCount: getBacklogIssueCount(backlog),
+    issues: Array.isArray(backlog.issues) ? backlog.issues : []
+  };
 }
 
 function renderSingleIssue(issue, options) {
@@ -854,10 +872,10 @@ async function relaySync(repoRoot, options) {
 
   if (options.output) {
     const outputPath = path.resolve(process.cwd(), options.output);
-    await writeJsonFile(outputPath, body);
+    await writeJsonFile(outputPath, normalizeBacklogResponse(body));
   }
 
-  return body;
+  return normalizeBacklogResponse(body);
 }
 
 async function setPortCommand(options) {
