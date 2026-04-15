@@ -9,11 +9,12 @@ use iago_shared::{
     backlog_path,
     default_relay_host,
     find_git_root,
-    parse_git_hub_remote,
     normalize_repository_remote,
+    parse_git_hub_remote,
     read_relay_port,
     read_backlog,
     relay_config_path,
+    resolve_repository_context,
     write_relay_port,
     workspace_banner,
     Backlog,
@@ -29,7 +30,7 @@ use std::fs;
 use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -91,6 +92,10 @@ fn run() -> Result<(), String> {
         "list" => {
             let options = parse_server_options(&remaining_args, relay_port)?;
             print_vault_entries(&options.vault_path)?;
+        }
+        "issues" => {
+            let options = parse_server_options(&remaining_args, relay_port)?;
+            print_vault_issue_counts(&options.vault_path)?;
         }
         "add" => {
             let options = parse_add_repo_options(&remaining_args, default_vault_path(), false)?;
@@ -383,8 +388,10 @@ fn handle_http_connection(mut stream: TcpStream, vault_path: &Path) -> Result<()
             break;
         }
 
-        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-            content_length = value.trim().parse::<usize>().unwrap_or(0);
+        if let Some((name, value)) = trimmed.split_once(':') {
+            if name.eq_ignore_ascii_case("Content-Length") {
+                content_length = value.trim().parse::<usize>().unwrap_or(0);
+            }
         }
     }
 
@@ -400,6 +407,20 @@ fn handle_http_connection(mut stream: TcpStream, vault_path: &Path) -> Result<()
         ("POST", "/sync") => {
             match serde_json::from_slice::<SyncRelayRequest>(&body) {
                 Ok(payload) => match handle_sync_relay(payload, vault_path) {
+                    Ok(result) => http_json_response(
+                        200,
+                        serde_json::to_value(result).map_err(|error| error.to_string())?,
+                    ),
+                    Err(error) => http_json_response(400, serde_json::json!({ "error": error })),
+                },
+                Err(error) => http_json_response(400, serde_json::json!({
+                    "error": format!("Request body must be valid JSON: {error}")
+                })),
+            }
+        }
+        ("POST", "/completed") => {
+            match serde_json::from_slice::<CompletedRelayRequest>(&body) {
+                Ok(payload) => match handle_completed_relay(payload, vault_path) {
                     Ok(result) => http_json_response(
                         200,
                         serde_json::to_value(result).map_err(|error| error.to_string())?,
@@ -479,6 +500,7 @@ fn run_repl_loop(
             }
             "about" => print_about(),
             "list" => print_vault_entries(vault_path)?,
+            "issues" => print_vault_issue_counts(vault_path)?,
             "add" => {
                 let options = parse_add_repo_options(&command_args, vault_path.to_path_buf(), true)?;
                 add_repo_command(&options)?;
@@ -561,6 +583,63 @@ fn print_vault_entries(vault_path: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn print_vault_issue_counts(vault_path: &Path) -> Result<(), String> {
+    let vault = read_vault(vault_path)?;
+
+    if vault.repos.is_empty() {
+        println!("No repositories are stored in the vault.");
+        return Ok(());
+    }
+
+    for repo in vault.repos {
+        let result = fetch_repository_backlog(&repo)?;
+        println!(
+            "- {} -> {}: {} open issues",
+            repo.repository_url,
+            repo.folder,
+            result.issue_count
+        );
+    }
+
+    Ok(())
+}
+
+fn fetch_repository_backlog(repo: &VaultRepo) -> Result<Backlog, String> {
+    let repository = parse_git_hub_remote(&repo.repository_url)?;
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.github+json"));
+    headers.insert(USER_AGENT, HeaderValue::from_static("iago"));
+
+    if !repo.token.trim().is_empty() {
+        let auth_value = HeaderValue::from_str(&format!("Bearer {}", repo.token))
+            .map_err(|error| format!("Invalid GitHub token header: {error}"))?;
+        headers.insert(AUTHORIZATION, auth_value);
+    }
+
+    let client = Client::builder()
+        .default_headers(headers)
+        .build()
+        .map_err(|error| format!("Failed to build HTTP client: {error}"))?;
+    let existing_backlog = read_backlog(backlog_path(&PathBuf::from(&repo.folder)))?;
+    let issues = fetch_open_issues(
+        &client,
+        &repository,
+        &repo.token,
+        existing_backlog,
+        "vault",
+        &repo.repository_url,
+    )?;
+
+    Ok(Backlog {
+        repository: Some(format!("{}/{}", repository.owner, repository.repo)),
+        host: Some(repository.host.clone()),
+        remote: Some("vault".to_owned()),
+        remote_url: Some(repo.repository_url.clone()),
+        issue_count: issues.len(),
+        issues,
+    })
 }
 
 fn add_repo_command(options: &AddRepoOptions) -> Result<(), String> {
@@ -820,6 +899,28 @@ struct SyncRelayRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompletedRelayRequest {
+    #[serde(default)]
+    branch: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    files: Vec<String>,
+    issue_number: u64,
+    #[serde(default)]
+    push: bool,
+    #[serde(default)]
+    remote: Option<String>,
+    repository_folder: String,
+    repository_url: String,
+    #[serde(default)]
+    save: bool,
+    #[serde(default)]
+    title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct GitHubIssueApi {
     number: u64,
     title: String,
@@ -853,9 +954,44 @@ struct GitHubUser {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct CloseIssueResult {
+    number: u64,
+    state: String,
+    title: String,
+    html_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompletedResult {
+    branch: Option<String>,
+    close_issue_error: Option<String>,
+    closed_issue: Option<CloseIssueResult>,
+    commit_message: String,
+    files: Vec<String>,
+    issue_number: u64,
+    pushed: bool,
+    remote: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RelaySyncResponse {
+    ok: bool,
+    repository: Option<String>,
+    host: Option<String>,
+    remote: Option<String>,
+    repository_folder: String,
+    repository_url: String,
+    issue_count: usize,
+    issues: Vec<Issue>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RelayCompletedResponse {
     #[serde(flatten)]
-    backlog: Backlog,
+    completed: CompletedResult,
     ok: bool,
     repository_folder: String,
     repository_url: String,
@@ -887,7 +1023,54 @@ fn handle_sync_relay(payload: SyncRelayRequest, vault_path: &Path) -> Result<Rel
     )?;
 
     Ok(RelaySyncResponse {
-        backlog,
+        ok: true,
+        repository: backlog.repository,
+        host: backlog.host,
+        remote: backlog.remote,
+        repository_folder: repo.folder,
+        repository_url: repo.repository_url,
+        issue_count: backlog.issue_count,
+        issues: backlog.issues,
+    })
+}
+
+fn handle_completed_relay(
+    payload: CompletedRelayRequest,
+    vault_path: &Path,
+) -> Result<RelayCompletedResponse, String> {
+    let issue_number = payload.issue_number;
+    let repository_folder = find_git_root(Path::new(&payload.repository_folder))?;
+    let repository_url = normalize_repository_remote(&payload.repository_url);
+    let vault = read_vault(vault_path)?;
+    let repo = vault
+        .repos
+        .into_iter()
+        .find(|entry| {
+            normalize_repository_remote(&entry.repository_url) == repository_url
+                && Path::new(&entry.folder) == repository_folder
+        })
+        .ok_or_else(|| {
+            format!(
+                "Repository is not registered in the relay vault: {repository_url} ({})",
+                repository_folder.display()
+            )
+        })?;
+
+    let remote_name = payload.remote.unwrap_or_else(|| "origin".to_owned());
+    let result = commit_issue_via_git(
+        Path::new(&repo.folder),
+        payload.files,
+        issue_number,
+        payload.title,
+        payload.description,
+        payload.push || payload.save,
+        &repo.token,
+        remote_name,
+        payload.branch,
+    )?;
+
+    Ok(RelayCompletedResponse {
+        completed: result,
         ok: true,
         repository_folder: repo.folder,
         repository_url: repo.repository_url,
@@ -901,20 +1084,219 @@ fn sync_issues_from_repository(
     remote_url: &str,
     repo_root: &Path,
 ) -> Result<Backlog, String> {
+    let backlog = fetch_repository_backlog_with_client(repository, token, remote_name, remote_url, repo_root)?;
+
+    write_backlog(backlog_path(repo_root), &backlog)?;
+    Ok(backlog)
+}
+
+fn fetch_repository_backlog_with_client(
+    repository: &iago_shared::RepositoryInfo,
+    token: &str,
+    remote_name: &str,
+    remote_url: &str,
+    repo_root: &Path,
+) -> Result<Backlog, String> {
     let client = github_client(token)?;
     let existing_backlog = read_backlog(backlog_path(repo_root))?;
     let issues = fetch_open_issues(&client, repository, token, existing_backlog, remote_name, remote_url)?;
-    let backlog = Backlog {
+
+    Ok(Backlog {
         repository: Some(format!("{}/{}", repository.owner, repository.repo)),
         host: Some(repository.host.clone()),
         remote: Some(remote_name.to_owned()),
         remote_url: Some(remote_url.to_owned()),
         issue_count: issues.len(),
         issues,
-    };
+    })
+}
 
-    write_backlog(backlog_path(repo_root), &backlog)?;
-    Ok(backlog)
+fn commit_issue_via_git(
+    repo_root: &Path,
+    files: Vec<String>,
+    issue_number: u64,
+    title: Option<String>,
+    description: Option<String>,
+    push: bool,
+    token: &str,
+    remote: String,
+    branch: Option<String>,
+) -> Result<CompletedResult, String> {
+    if title.as_deref().map(str::trim).unwrap_or("").is_empty()
+        && description.as_deref().map(str::trim).unwrap_or("").is_empty()
+    {
+        return Err("completed requires --description or --title.".to_owned());
+    }
+
+    if files.is_empty() {
+        run_git_command(["add", "."], repo_root)?;
+    } else {
+        let mut args = vec!["add".to_owned(), "--".to_owned()];
+        args.extend(files.iter().cloned());
+        run_git_command(args.iter().map(String::as_str), repo_root)?;
+    }
+
+    if run_git_command(["status", "--porcelain"], repo_root)?.trim().is_empty() {
+        return Err("Nothing to commit.".to_owned());
+    }
+
+    let commit_message = iago_shared::build_issue_fix_commit_message(
+        issue_number,
+        title.as_deref(),
+        description.as_deref(),
+    );
+    run_git_command(build_commit_command_args(&commit_message), repo_root)?;
+
+    if push {
+        let push_args = if let Some(branch) = &branch {
+            vec!["push".to_owned(), remote.clone(), format!("HEAD:{branch}")]
+        } else {
+            vec!["push".to_owned(), remote.clone(), "HEAD".to_owned()]
+        };
+        run_git_command(push_args.iter().map(String::as_str), repo_root)?;
+    }
+
+    let mut closed_issue = None;
+    let mut close_issue_error = None;
+
+    match close_remote_issue(repo_root, issue_number, &remote, token) {
+        Ok(result) => {
+            closed_issue = Some(result);
+        }
+        Err(error) => {
+            close_issue_error = Some(error);
+        }
+    }
+
+    Ok(CompletedResult {
+        branch,
+        close_issue_error,
+        closed_issue,
+        commit_message,
+        files,
+        issue_number,
+        pushed: push,
+        remote,
+    })
+}
+
+fn close_remote_issue(
+    repo_root: &Path,
+    issue_number: u64,
+    remote_name: &str,
+    token: &str,
+) -> Result<CloseIssueResult, String> {
+    let context = resolve_repository_context(repo_root, remote_name)?;
+    let client = github_client(token)?;
+    let url = format!(
+        "{}/repos/{}/{}/issues/{}",
+        context.repository.api_base_url,
+        context.repository.owner,
+        context.repository.repo,
+        issue_number
+    );
+
+    let response = client
+        .patch(url)
+        .header(reqwest::header::CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .json(&serde_json::json!({ "state": "closed" }))
+        .send()
+        .map_err(|error| format!("Failed to close issue #{issue_number}: {error}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().unwrap_or_default();
+        return Err(build_repository_api_error(
+            &format!("close issue #{issue_number}"),
+            &context.repository,
+            remote_name,
+            &context.remote_url,
+            !token.trim().is_empty(),
+            status,
+            body,
+        ));
+    }
+
+    let closed: GitHubIssueApi = response
+        .json()
+        .map_err(|error| format!("Failed to decode GitHub response: {error}"))?;
+    update_backlog_issue_state(repo_root, issue_number, "closed")?;
+
+    Ok(CloseIssueResult {
+        number: closed.number,
+        state: closed.state,
+        title: closed.title,
+        html_url: closed.html_url.unwrap_or_default(),
+    })
+}
+
+fn update_backlog_issue_state(repo_root: &Path, issue_number: u64, state: &str) -> Result<(), String> {
+    let backlog_path = backlog_path(repo_root);
+    let mut backlog = read_backlog(&backlog_path)?;
+
+    let mut changed = false;
+    for issue in &mut backlog.issues {
+        if issue.number == issue_number && issue.state != state {
+            issue.state = state.to_owned();
+            changed = true;
+        }
+    }
+
+    if changed {
+        write_backlog(backlog_path, &backlog)?;
+    }
+
+    Ok(())
+}
+
+fn build_commit_command_args(commit_message: &str) -> Vec<String> {
+    let mut args = vec!["commit".to_owned()];
+
+    for part in commit_message.split("\n\n") {
+        args.push("-m".to_owned());
+        args.push(part.to_owned());
+    }
+
+    args
+}
+
+fn run_git_command<I, S>(args: I, cwd: &Path) -> Result<String, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let args_vec = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_os_string())
+        .collect::<Vec<_>>();
+
+    let output = Command::new("git")
+        .args(&args_vec)
+        .current_dir(cwd)
+        .output()
+        .map_err(|error| format!("Failed to run git command: {error}"))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        let reason = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            format!("git exited with code {:?}", output.status.code())
+        };
+        Err(format!("Git command failed: git {}\n{reason}", args_vec_to_string(&args_vec)))
+    }
+}
+
+fn args_vec_to_string(args: &[std::ffi::OsString]) -> String {
+    args.iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn github_client(token: &str) -> Result<Client, String> {
@@ -1074,6 +1456,8 @@ fn print_repl_help(default_port: u16) {
             Show repositories currently stored in the vault.\n\
   add       add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
             Add or update a repository in the vault.\n\
+  issues    issues [--vault <path>]\n\
+            Check the number of open issues for each stored repository.\n\
   set-port  set-port <port>\n\
             Update the shared relay config with a new server port.\n\
   quit      Leave the REPL.\n\
@@ -1125,6 +1509,7 @@ Usage:\n\
   iago-server serve [--host 127.0.0.1] [--port <port>] [--vault <path>]\n\
   iago-server repl [--vault <path>]\n\
   iago-server list [--vault <path>]\n\
+  iago-server issues [--vault <path>]\n\
   iago-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
   iago-server client help\n\
   iago-server set-port --port <port>\n\n\

@@ -77,7 +77,16 @@ pub fn workspace_banner(component: &str) -> String {
 }
 
 pub fn normalize_repository_remote(remote_url: &str) -> String {
-    remote_url.trim().trim_end_matches(".git").to_owned()
+    parse_git_hub_remote(remote_url)
+        .map(|repository| {
+            format!(
+                "https://{}/{}/{}",
+                repository.host.to_lowercase(),
+                repository.owner,
+                repository.repo
+            )
+        })
+        .unwrap_or_else(|_| remote_url.trim().trim_end_matches(".git").to_owned())
 }
 
 pub fn build_issue_fix_commit_message(
@@ -85,19 +94,26 @@ pub fn build_issue_fix_commit_message(
     title: Option<&str>,
     description: Option<&str>,
 ) -> String {
-    let title = title.map(str::trim).filter(|value| !value.is_empty());
-    let description = description.map(str::trim).filter(|value| !value.is_empty());
-    let header = title
-        .map(|value| format!("fix(issue): close #{issue_number} - {value}"))
-        .unwrap_or_else(|| format!("fix(issue): close #{issue_number}"));
+    let normalized_description = description.map(str::trim);
+    let normalized_title = match title {
+        Some(value) => value.trim().to_owned(),
+        None => normalized_description
+            .filter(|value| !value.is_empty())
+            .map(normalize_commit_title)
+            .unwrap_or_default(),
+    };
 
-    let body = description.unwrap_or("");
-
-    if body.is_empty() {
-        format!("{header}\n")
+    let header = if normalized_title.is_empty() {
+        format!("fix(issue): close #{issue_number}")
     } else {
-        format!("{header}\n\n{body}\n")
-    }
+        format!("fix(issue): close #{issue_number} - {normalized_title}")
+    };
+
+    [header, String::new(), normalized_description.unwrap_or_default().to_owned()].join("\n")
+}
+
+fn normalize_commit_title(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub fn backlog_path(repo_root: impl AsRef<Path>) -> PathBuf {
@@ -330,4 +346,57 @@ pub fn require_git_hub_token(token: Option<&str>) -> Result<String, String> {
 
 fn default_issue_state() -> String {
     "open".to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_issue_fix_commit_message, normalize_repository_remote};
+
+    #[test]
+    fn normalizes_https_remote_to_canonical_url() {
+        assert_eq!(
+            normalize_repository_remote("https://github.com/owner/repo.git"),
+            "https://github.com/owner/repo"
+        );
+    }
+
+    #[test]
+    fn normalizes_ssh_remote_to_canonical_url() {
+        assert_eq!(
+            normalize_repository_remote("git@github.com:owner/repo.git"),
+            "https://github.com/owner/repo"
+        );
+    }
+
+    #[test]
+    fn preserves_unknown_remote_format_when_it_cannot_be_parsed() {
+        assert_eq!(
+            normalize_repository_remote("custom-remote-value.git"),
+            "custom-remote-value"
+        );
+    }
+
+    #[test]
+    fn build_issue_fix_commit_message_uses_title_when_provided() {
+        assert_eq!(
+            build_issue_fix_commit_message(42, Some("Fix thing"), Some("Detailed notes")),
+            "fix(issue): close #42 - Fix thing\n\nDetailed notes"
+        );
+    }
+
+    #[test]
+    fn build_issue_fix_commit_message_uses_description_as_fallback_title() {
+        assert_eq!(
+            build_issue_fix_commit_message(42, None, Some("Fix thing\nwith details")),
+            "fix(issue): close #42 - Fix thing with details\n\nFix thing\nwith details"
+        );
+    }
+
+    #[test]
+    fn build_issue_fix_commit_message_keeps_blank_body_when_no_description_exists() {
+        assert_eq!(
+            build_issue_fix_commit_message(42, Some("Fix thing"), None),
+            "fix(issue): close #42 - Fix thing\n\n"
+        );
+    }
 }

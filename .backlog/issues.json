@@ -1,0 +1,20 @@
+{
+  "repository": "NicholasCaporusso/iago-issues-a-gogo",
+  "host": "github.com",
+  "remote": "origin",
+  "remote_url": null,
+  "issue_count": 1,
+  "issues": [
+    {
+      "number": 21,
+      "title": "test",
+      "description": null,
+      "state": "open",
+      "labels": [],
+      "html_url": "https://github.com/NicholasCaporusso/iago-issues-a-gogo/issues/21",
+      "created_at": "2026-04-14T23:24:53Z",
+      "updated_at": "2026-04-14T23:24:53Z",
+      "author": "NicholasCaporusso"
+    }
+  ]
+}

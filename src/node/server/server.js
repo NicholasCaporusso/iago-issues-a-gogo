@@ -9,10 +9,13 @@ import readline from "node:readline/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
+  buildRepositoryApiError,
   buildIssueFixCommitMessage,
   closeRemoteIssue,
   findGitRoot,
   normalizeRepositoryRemote,
+  parseGitHubRemote,
+  safeReadJson,
   syncIssues
 } from "../shared/repository.js";
 import {
@@ -47,6 +50,9 @@ async function main() {
         return;
       case "add":
         await addRepoCommand(options);
+        return;
+      case "issues":
+        await printVaultIssueCounts(options.vaultPath);
         return;
       case "set-port":
         await setPortCommand(options);
@@ -264,6 +270,11 @@ async function startVaultRepl(options, relayConfig, hooks = {}) {
 
       if (normalizedCommand === "list") {
         await printVaultEntries(options.vaultPath);
+        continue;
+      }
+
+      if (normalizedCommand === "issues") {
+        await printVaultIssueCounts(options.vaultPath);
         continue;
       }
 
@@ -587,6 +598,7 @@ Usage:
   iago-server serve [--host 127.0.0.1] [--port <port>]
   iago-server repl
   iago-server add --url <repository-url> --folder <repository-folder> --token <github-token>
+  iago-server issues
   iago-server set-port --port <port>
 
 Options:
@@ -610,6 +622,7 @@ function printReplHelp(relayConfig) {
 Commands:
   add [--url <url>] [--folder <path>] [--token <token>]
             Add or update a repository in the relay vault.
+  issues    Check how many open issues each stored repository has.
   list      Show the repositories currently stored in the vault.
   set-port  set-port <port>
             Update the shared relay config with a new server port.
@@ -710,6 +723,105 @@ async function printVaultEntries(vaultPath) {
   for (const repo of vault.repos) {
     console.log(`- ${repo.repositoryUrl} -> ${repo.folder}`);
   }
+}
+
+async function printVaultIssueCounts(vaultPath) {
+  const vault = await readVault(vaultPath);
+
+  if (!vault.repos.length) {
+    console.log("No repositories are stored in the vault.");
+    return;
+  }
+
+  for (const repo of vault.repos) {
+    const result = await fetchRepositoryBacklog(repo);
+    console.log(`- ${repo.repositoryUrl} -> ${repo.folder}: ${result.issueCount} open issues`);
+  }
+}
+
+async function fetchRepositoryBacklog(repo) {
+  const repository = parseGitHubRemote(repo.repositoryUrl);
+  const token = repo.token ?? "";
+  const existingBacklog = await readExistingBacklog(path.join(repo.folder, BACKLOG_DIR_NAME, "issues.json"));
+  let page = 1;
+  const issues = [];
+  const existingIssues = new Map((existingBacklog?.issues ?? []).map((issue) => [issue.number, issue]));
+
+  while (true) {
+    const url = new URL(`${repository.apiBaseUrl}/repos/${repository.owner}/${repository.repo}/issues`);
+    url.searchParams.set("state", "open");
+    url.searchParams.set("per_page", "100");
+    url.searchParams.set("page", String(page));
+
+    let response;
+
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "User-Agent": "iago"
+        }
+      });
+    } catch (error) {
+      throw new Error(`Failed to fetch issue count for ${repo.repositoryUrl}: ${error.message}`);
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      const body = await safeReadJson(response);
+      const reason = body?.message ?? `GitHub API returned ${response.status}.`;
+      throw new Error(`Authentication failed or rate limit exceeded for ${repo.repositoryUrl}: ${reason}`);
+    }
+
+    if (!response.ok) {
+      const body = await safeReadJson(response);
+      throw new Error(buildRepositoryApiError({
+        action: "fetch issue count",
+        repository,
+        remoteName: "vault",
+        remoteUrl: repo.repositoryUrl,
+        tokenPresent: Boolean(token.trim()),
+        response,
+        body
+      }));
+    }
+
+    const pageItems = await response.json();
+    for (const item of pageItems.filter((entry) => !Object.prototype.hasOwnProperty.call(entry, "pull_request"))) {
+      const existingIssue = existingIssues.get(item.number);
+      if (existingIssue && existingIssue.updatedAt === item.updated_at) {
+        issues.push(existingIssue);
+        continue;
+      }
+
+      issues.push({
+        number: item.number,
+        title: item.title,
+        description: item.body ?? "",
+        state: item.state,
+        htmlUrl: item.html_url,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+        author: item.user?.login ?? null,
+        labels: Array.isArray(item.labels) ? item.labels.map((label) => label.name) : []
+      });
+    }
+
+    if (pageItems.length < 100) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return {
+    repository: `${repository.owner}/${repository.repo}`,
+    host: repository.host,
+    remote: "vault",
+    remoteUrl: repo.repositoryUrl,
+    issueCount: issues.length,
+    issues
+  };
 }
 
 async function closeServer(server) {

@@ -34,6 +34,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Icons]
 Name: "{autoprograms}\IAGO"; Filename: "{app}\bin\iago.exe"
 Name: "{autoprograms}\IAGO Server"; Filename: "{app}\bin\iago-server.exe"; Parameters: "repl"
+Name: "{autoprograms}\IAGO Server Issues"; Filename: "{app}\bin\iago-server.exe"; Parameters: "issues"
 
 [Code]
 function NeedsPathUpdate(): Boolean;
