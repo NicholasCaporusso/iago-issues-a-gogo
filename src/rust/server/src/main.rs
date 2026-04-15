@@ -622,24 +622,14 @@ fn fetch_repository_backlog(repo: &VaultRepo) -> Result<Backlog, String> {
         .default_headers(headers)
         .build()
         .map_err(|error| format!("Failed to build HTTP client: {error}"))?;
-    let existing_backlog = read_backlog(backlog_path(&PathBuf::from(&repo.folder)))?;
-    let issues = fetch_open_issues(
+    build_repository_backlog(
         &client,
         &repository,
         &repo.token,
-        existing_backlog,
         "vault",
         &repo.repository_url,
-    )?;
-
-    Ok(Backlog {
-        repository: Some(format!("{}/{}", repository.owner, repository.repo)),
-        host: Some(repository.host.clone()),
-        remote: Some("vault".to_owned()),
-        remote_url: Some(repo.repository_url.clone()),
-        issue_count: issues.len(),
-        issues,
-    })
+        &PathBuf::from(&repo.folder),
+    )
 }
 
 fn add_repo_command(options: &AddRepoOptions) -> Result<(), String> {
@@ -1084,20 +1074,21 @@ fn sync_issues_from_repository(
     remote_url: &str,
     repo_root: &Path,
 ) -> Result<Backlog, String> {
-    let backlog = fetch_repository_backlog_with_client(repository, token, remote_name, remote_url, repo_root)?;
+    let client = github_client(token)?;
+    let backlog = build_repository_backlog(&client, repository, token, remote_name, remote_url, repo_root)?;
 
     write_backlog(backlog_path(repo_root), &backlog)?;
     Ok(backlog)
 }
 
-fn fetch_repository_backlog_with_client(
+fn build_repository_backlog(
+    client: &Client,
     repository: &iago_shared::RepositoryInfo,
     token: &str,
     remote_name: &str,
     remote_url: &str,
     repo_root: &Path,
 ) -> Result<Backlog, String> {
-    let client = github_client(token)?;
     let existing_backlog = read_backlog(backlog_path(repo_root))?;
     let issues = fetch_open_issues(&client, repository, token, existing_backlog, remote_name, remote_url)?;
 

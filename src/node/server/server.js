@@ -741,8 +741,26 @@ async function printVaultIssueCounts(vaultPath) {
 
 async function fetchRepositoryBacklog(repo) {
   const repository = parseGitHubRemote(repo.repositoryUrl);
-  const token = repo.token ?? "";
   const existingBacklog = await readExistingBacklog(path.join(repo.folder, BACKLOG_DIR_NAME, "issues.json"));
+  const token = repo.token ?? "";
+  const issues = await fetchRepositoryIssues({
+    repository,
+    token,
+    remoteName: "vault",
+    remoteUrl: repo.repositoryUrl,
+    existingBacklog
+  });
+
+  return buildRepositoryBacklog(repository, repo.repositoryUrl, issues);
+}
+
+async function fetchRepositoryIssues({
+  repository,
+  token,
+  remoteName,
+  remoteUrl,
+  existingBacklog = { issues: [] }
+}) {
   let page = 1;
   const issues = [];
   const existingIssues = new Map((existingBacklog?.issues ?? []).map((issue) => [issue.number, issue]));
@@ -764,13 +782,13 @@ async function fetchRepositoryBacklog(repo) {
         }
       });
     } catch (error) {
-      throw new Error(`Failed to fetch issue count for ${repo.repositoryUrl}: ${error.message}`);
+      throw new Error(`Failed to fetch issue count for ${remoteUrl}: ${error.message}`);
     }
 
     if (response.status === 401 || response.status === 403) {
       const body = await safeReadJson(response);
       const reason = body?.message ?? `GitHub API returned ${response.status}.`;
-      throw new Error(`Authentication failed or rate limit exceeded for ${repo.repositoryUrl}: ${reason}`);
+      throw new Error(`Authentication failed or rate limit exceeded for ${remoteUrl}: ${reason}`);
     }
 
     if (!response.ok) {
@@ -778,8 +796,8 @@ async function fetchRepositoryBacklog(repo) {
       throw new Error(buildRepositoryApiError({
         action: "fetch issue count",
         repository,
-        remoteName: "vault",
-        remoteUrl: repo.repositoryUrl,
+        remoteName,
+        remoteUrl,
         tokenPresent: Boolean(token.trim()),
         response,
         body
@@ -787,7 +805,8 @@ async function fetchRepositoryBacklog(repo) {
     }
 
     const pageItems = await response.json();
-    for (const item of pageItems.filter((entry) => !Object.prototype.hasOwnProperty.call(entry, "pull_request"))) {
+    const openIssues = pageItems.filter((entry) => !Object.prototype.hasOwnProperty.call(entry, "pull_request"));
+    for (const item of openIssues) {
       const existingIssue = existingIssues.get(item.number);
       if (existingIssue && existingIssue.updatedAt === item.updated_at) {
         issues.push(existingIssue);
@@ -808,17 +827,19 @@ async function fetchRepositoryBacklog(repo) {
     }
 
     if (pageItems.length < 100) {
-      break;
+      return issues;
     }
 
     page += 1;
   }
+}
 
+function buildRepositoryBacklog(repository, repositoryUrl, issues) {
   return {
     repository: `${repository.owner}/${repository.repo}`,
     host: repository.host,
     remote: "vault",
-    remoteUrl: repo.repositoryUrl,
+    remoteUrl: repositoryUrl,
     issueCount: issues.length,
     issues
   };
