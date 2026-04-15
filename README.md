@@ -1,8 +1,8 @@
-# IAGO (Issues A GOgo)
+# IAGO
+<img src="https://github.com/NicholasCaporusso/iago-issues-a-gogo/blob/main/assets/iago-logo.png?raw=true" width="200" />
 
 IAGO stands for Issues A GOgo. It's a tool that helps sandboxed coding agents retrieve and fix GitHub issues. To get what I mean, read [AGENT.md](./AGENT.md).
 
-<img src="https://github.com/NicholasCaporusso/iago-issues-a-gogo/blob/main/assets/iago-logo.png?raw=true" width=200" />
 
 This repository contains two Windows-ready Rust applications:
 
