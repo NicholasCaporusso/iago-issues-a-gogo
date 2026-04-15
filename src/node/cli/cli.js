@@ -532,7 +532,40 @@ async function createRemoteIssue(repoRoot, options) {
 
   const remoteName = options.remote ?? "origin";
   const { repository, remoteUrl } = await resolveRepositoryContext(repoRoot, remoteName);
-  const token = await shared.requireGitHubToken(options, remoteUrl);
+  const token = readDirectGitHubToken(options);
+
+  if (!options.relay && token) {
+    return createRemoteIssueDirect({
+      repository,
+      remoteName,
+      remoteUrl,
+      token,
+      title: options.title.trim(),
+      description: options.description?.trim() || "",
+      label: options.label
+    });
+  }
+
+  return relayCreateIssue(repoRoot, {
+    label: options.label,
+    remoteName,
+    remoteUrl,
+    repository,
+    title: options.title.trim(),
+    description: options.description?.trim() || "",
+    relayUrl: options.relayUrl
+  });
+}
+
+async function createRemoteIssueDirect({
+  repository,
+  remoteName,
+  remoteUrl,
+  token,
+  title,
+  description,
+  label
+}) {
   const url = new URL(`${repository.apiBaseUrl}/repos/${repository.owner}/${repository.repo}/issues`);
   const response = await fetch(url, {
     method: "POST",
@@ -541,9 +574,9 @@ async function createRemoteIssue(repoRoot, options) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      title: options.title.trim(),
-      body: options.description?.trim() || "",
-      ...(options.label ? { labels: [options.label] } : {})
+      title,
+      body: description,
+      ...(label ? { labels: [label] } : {})
     })
   });
 
@@ -568,6 +601,45 @@ async function createRemoteIssue(repoRoot, options) {
     htmlUrl: created.html_url,
     state: created.state
   };
+}
+
+async function relayCreateIssue(repoRoot, options) {
+  const relayTarget = new URL("/report", ensureRelayBaseUrl(options.relayUrl));
+  const response = await fetch(relayTarget, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "iago-relay-client"
+    },
+    body: JSON.stringify({
+      description: options.description,
+      label: options.label,
+      remote: options.remoteName,
+      repositoryFolder: path.resolve(repoRoot),
+      repositoryUrl: shared.normalizeRepositoryRemote(options.remoteUrl),
+      title: options.title
+    })
+  });
+
+  const body = await safeReadJson(response);
+
+  if (!response.ok || !body?.ok) {
+    const message = body?.error ?? body?.message ?? `Relay request failed with HTTP ${response.status}.`;
+    throw new Error(message);
+  }
+
+  return {
+    number: body.number,
+    title: body.title,
+    description: body.description ?? "",
+    htmlUrl: body.htmlUrl,
+    state: body.state
+  };
+}
+
+function readDirectGitHubToken(options = {}) {
+  return options.token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? null;
 }
 
 async function closeRemoteIssue(repoRoot, options) {
@@ -1881,7 +1953,7 @@ function printHelp() {
     --push             Push after completed.
     --save             Ask the relay flow to push after completed.
     --branch <name>    Push target branch for completed.
-    --relay            Send completed to the local relay server instead of committing directly.
+    --relay            Send report or completed to the local relay server instead of using a direct GitHub token.
     --relay-url <url>  Relay server base URL. Defaults to the shared relay config.
     --port <number>    Update the shared relay config when using set-port.
   --json             Print the full result as JSON.

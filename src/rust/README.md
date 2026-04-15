@@ -43,7 +43,7 @@ The Rust CLI implements the local workflow:
 - `show`
 - `start-issue`
 - `completed`
-- `report`
+- `report` (uses the relay automatically when no token is available)
 - `create-issue`
 - `set-port`
 - `about`

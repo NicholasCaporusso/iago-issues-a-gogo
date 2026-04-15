@@ -465,6 +465,20 @@ fn handle_http_connection(mut stream: TcpStream, vault_path: &Path) -> Result<()
                 })),
             }
         }
+        ("POST", "/report") | ("POST", "/create-issue") => {
+            match serde_json::from_slice::<ReportRelayRequest>(&body) {
+                Ok(payload) => match handle_report_relay(payload, vault_path) {
+                    Ok(result) => http_json_response(
+                        200,
+                        serde_json::to_value(result).map_err(|error| error.to_string())?,
+                    ),
+                    Err(error) => http_json_response(400, serde_json::json!({ "error": error })),
+                },
+                Err(error) => http_json_response(400, serde_json::json!({
+                    "error": format!("Request body must be valid JSON: {error}")
+                })),
+            }
+        }
         ("POST", "/completed") => {
             match serde_json::from_slice::<CompletedRelayRequest>(&body) {
                 Ok(payload) => match handle_completed_relay(payload, vault_path) {
@@ -985,6 +999,20 @@ struct CompletedRelayRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReportRelayRequest {
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    remote: Option<String>,
+    repository_folder: String,
+    repository_url: String,
+    title: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct GitHubIssueApi {
     number: u64,
     title: String,
@@ -1040,6 +1068,16 @@ struct CompletedResult {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct CreatedIssue {
+    number: u64,
+    title: String,
+    description: String,
+    html_url: String,
+    state: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RelaySyncResponse {
     ok: bool,
     repository: Option<String>,
@@ -1049,6 +1087,16 @@ struct RelaySyncResponse {
     repository_url: String,
     issue_count: usize,
     issues: Vec<Issue>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RelayReportResponse {
+    #[serde(flatten)]
+    created_issue: CreatedIssue,
+    ok: bool,
+    repository_folder: String,
+    repository_url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1098,6 +1146,47 @@ fn handle_sync_relay(payload: SyncRelayRequest, vault_path: &Path) -> Result<Rel
     })
 }
 
+fn handle_report_relay(
+    payload: ReportRelayRequest,
+    vault_path: &Path,
+) -> Result<RelayReportResponse, String> {
+    let repository_folder = find_git_root(Path::new(&payload.repository_folder))?;
+    let repository_url = normalize_repository_remote(&payload.repository_url);
+    let vault = read_vault(vault_path)?;
+    let repo = vault
+        .repos
+        .into_iter()
+        .find(|entry| {
+            normalize_repository_remote(&entry.repository_url) == repository_url
+                && Path::new(&entry.folder) == repository_folder
+        })
+        .ok_or_else(|| {
+            format!(
+                "Repository is not registered in the relay vault: {repository_url} ({})",
+                repository_folder.display()
+            )
+        })?;
+
+    let remote_name = payload.remote.unwrap_or_else(|| "origin".to_owned());
+    let repository = parse_git_hub_remote(&repo.repository_url)?;
+    let created_issue = create_repository_issue(
+        &repository,
+        &repo.token,
+        &remote_name,
+        &repo.repository_url,
+        payload.title.trim(),
+        payload.description.unwrap_or_default().trim(),
+        payload.label.as_deref(),
+    )?;
+
+    Ok(RelayReportResponse {
+        created_issue,
+        ok: true,
+        repository_folder: repo.folder,
+        repository_url: repo.repository_url,
+    })
+}
+
 fn handle_completed_relay(
     payload: CompletedRelayRequest,
     vault_path: &Path,
@@ -1138,6 +1227,67 @@ fn handle_completed_relay(
         ok: true,
         repository_folder: repo.folder,
         repository_url: repo.repository_url,
+    })
+}
+
+fn create_repository_issue(
+    repository: &iago_shared::RepositoryInfo,
+    token: &str,
+    remote_name: &str,
+    remote_url: &str,
+    title: &str,
+    description: &str,
+    label: Option<&str>,
+) -> Result<CreatedIssue, String> {
+    let client = github_client(token)?;
+    let url = format!(
+        "{}/repos/{}/issues",
+        repository.api_base_url,
+        format!("{}/{}", repository.owner, repository.repo)
+    );
+
+    let mut body = serde_json::json!({
+        "title": title,
+        "body": description,
+    });
+
+    if let Some(label) = label.map(str::trim).filter(|value| !value.is_empty()) {
+        body["labels"] = serde_json::json!([label]);
+    }
+
+    let response = client
+        .post(url)
+        .header(ACCEPT, HeaderValue::from_static("application/vnd.github+json"))
+        .header(USER_AGENT, HeaderValue::from_static("iago"))
+        .header(reqwest::header::CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .json(&body)
+        .send()
+        .map_err(|error| format!("Failed to create issue: {error}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().unwrap_or_default();
+        return Err(build_repository_api_error(
+            "create issue",
+            repository,
+            remote_name,
+            remote_url,
+            !token.trim().is_empty(),
+            status,
+            body,
+        ));
+    }
+
+    let created: GitHubIssueApi = response
+        .json()
+        .map_err(|error| format!("Failed to decode GitHub response: {error}"))?;
+
+    Ok(CreatedIssue {
+        number: created.number,
+        title: created.title,
+        description: created.body.unwrap_or_default(),
+        html_url: created.html_url.unwrap_or_default(),
+        state: created.state,
     })
 }
 

@@ -184,6 +184,20 @@ struct RelayCompletedResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+struct RelayReportResponse {
+    ok: bool,
+    number: u64,
+    title: String,
+    description: String,
+    html_url: String,
+    state: String,
+    repository_folder: String,
+    repository_url: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct RelaySyncResponse {
     #[serde(default)]
     repository: Option<String>,
@@ -569,8 +583,31 @@ fn create_remote_issue(repo_root: &Path, options: &Options) -> Result<CreatedIss
 
     let remote_name = options.remote.clone().unwrap_or_else(|| "origin".to_owned());
     let context = resolve_repository_context(repo_root, &remote_name)?;
-    let token = require_git_hub_token(options.token.as_deref())?;
-    let client = github_client(&token)?;
+    let direct_token = resolve_direct_git_hub_token(options);
+
+    if !options.relay {
+        if let Some(token) = direct_token {
+            return create_remote_issue_direct(
+                &context,
+                &token,
+                title,
+                options.description.as_deref().unwrap_or("").trim(),
+                options.label.as_deref(),
+            );
+        }
+    }
+
+    relay_create_issue(repo_root, options, &context, title)
+}
+
+fn create_remote_issue_direct(
+    context: &iago_shared::RepositoryContext,
+    token: &str,
+    title: &str,
+    description: &str,
+    label: Option<&str>,
+) -> Result<CreatedIssue, String> {
+    let client = github_client(token)?;
     let url = format!(
         "{}/repos/{}/issues",
         context.repository.api_base_url,
@@ -579,14 +616,10 @@ fn create_remote_issue(repo_root: &Path, options: &Options) -> Result<CreatedIss
 
     let mut body = json!({
         "title": title,
-        "body": options.description.as_deref().unwrap_or("").trim(),
+        "body": description,
     });
 
-    if let Some(label) = options
-        .label
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
+    if let Some(label) = label.map(str::trim).filter(|value| !value.is_empty()) {
         body["labels"] = json!([label]);
     }
 
@@ -672,6 +705,66 @@ fn relay_completed(repo_root: &Path, options: &Options) -> Result<CompletedResul
         pushed: relay_response.pushed.unwrap_or_else(|| options.push || options.save),
         remote: relay_response.remote.unwrap_or(remote_name),
     })
+}
+
+fn relay_create_issue(
+    repo_root: &Path,
+    options: &Options,
+    context: &iago_shared::RepositoryContext,
+    title: &str,
+) -> Result<CreatedIssue, String> {
+    let relay_target = new_relay_url(options.relay_url.as_str(), "/report")?;
+    let client = Client::new();
+    let response = client
+        .post(relay_target)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "iago-relay-client")
+        .json(&json!({
+            "description": options.description.as_deref().unwrap_or("").trim(),
+            "label": options.label.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+            "remote": options.remote.clone().unwrap_or_else(|| "origin".to_owned()),
+            "repositoryFolder": repo_root.display().to_string(),
+            "repositoryUrl": iago_shared::normalize_repository_remote(&context.remote_url),
+            "title": title
+        }))
+        .send()
+        .map_err(|error| format!("Failed to create issue via relay: {error}"))?;
+
+    let body: serde_json::Value = response
+        .json()
+        .map_err(|error| format!("Failed to decode relay response: {error}"))?;
+
+    if !body.get("ok").and_then(|value| value.as_bool()).unwrap_or(false) {
+        let message = body
+            .get("error")
+            .and_then(|value| value.as_str())
+            .or_else(|| body.get("message").and_then(|value| value.as_str()))
+            .unwrap_or("Relay request failed.");
+        return Err(message.to_owned());
+    }
+
+    let relay_response: RelayReportResponse = serde_json::from_value(body)
+        .map_err(|error| format!("Failed to decode relay response: {error}"))?;
+
+    Ok(CreatedIssue {
+        number: relay_response.number,
+        title: relay_response.title,
+        description: relay_response.description,
+        html_url: relay_response.html_url,
+        state: relay_response.state,
+    })
+}
+
+fn resolve_direct_git_hub_token(options: &Options) -> Option<String> {
+    options
+        .token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| env::var("GITHUB_TOKEN").ok())
+        .or_else(|| env::var("GH_TOKEN").ok())
 }
 
 fn sync_issues(repo_root: &Path, options: &Options) -> Result<Backlog, String> {
@@ -1019,9 +1112,9 @@ Commands:\n\
                       Create or switch to the branch for an issue.\n\
   completed           completed --issue <number> --files <path> [<path> ...] [--title <text>] [--description <text>] [--push] [--branch <name>]\n\
                       Stage files, commit progress for an issue, and close it.\n\
-  report              report --title <text> [--description <text>] [--label bug|improvement|feature] [--cwd <path>] [--remote <name>] [--token <token>]\n\
+  report              report --title <text> [--description <text>] [--label bug|improvement|feature] [--cwd <path>] [--remote <name>] [--token <token>] [--relay]\n\
                       Create a new issue on the remote repository.\n\
-  create-issue        create-issue --title <text> [--description <text>] [--label bug|improvement|feature] [--cwd <path>] [--remote <name>] [--token <token>]\n\
+  create-issue        create-issue --title <text> [--description <text>] [--label bug|improvement|feature] [--cwd <path>] [--remote <name>] [--token <token>] [--relay]\n\
                       Same as report.\n\
   set-port            set-port --port <number>\n\
                       Update the shared relay config with a new server port.\n\
@@ -1039,7 +1132,7 @@ Options:\n\
   --push             Push after completed.\n\
   --save             Ask the relay flow to push after completed.\n\
   --branch <name>    Push target branch for completed.\n\
-  --relay            Send completed to the local relay server instead of committing directly.\n\
+  --relay            Send report or completed to the local relay server instead of using a direct GitHub token.\n\
   --relay-url <url>  Relay server base URL. Defaults to the shared relay config.\n\
   --port <number>    Update the shared relay config when using set-port.\n\
   --json             Print the full result as JSON.\n\

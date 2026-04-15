@@ -216,6 +216,13 @@ async function serveRelay(options) {
         return;
       }
 
+      if (request.method === "POST" && (request.url === "/report" || request.url === "/create-issue")) {
+        const payload = await readJsonBody(request);
+        const result = await handleReportRelay(payload, options.vaultPath);
+        respondJson(response, 200, result);
+        return;
+      }
+
       if (request.method === "POST" && request.url === "/sync") {
         const payload = await readJsonBody(request);
         const result = await handleSyncRelay(payload, options.vaultPath);
@@ -395,6 +402,40 @@ async function handleSyncRelay(payload, vaultPath) {
   };
 }
 
+async function handleReportRelay(payload, vaultPath) {
+  if (!payload?.title || !String(payload.title).trim()) {
+    throw new Error("The relay request requires a title.");
+  }
+
+  const repositoryUrl = normalizeRepositoryRemote(payload.repositoryUrl);
+  const repositoryFolder = await findGitRoot(path.resolve(String(payload.repositoryFolder ?? "")));
+  const vault = await readVault(vaultPath);
+  const repo = vault.repos.find((entry) => {
+    return entry.repositoryUrl === repositoryUrl && path.resolve(entry.folder) === repositoryFolder;
+  });
+
+  if (!repo) {
+    throw new Error(`Repository is not registered in the relay vault: ${repositoryUrl} (${repositoryFolder})`);
+  }
+
+  const issue = await createRepositoryIssue({
+    repository: parseGitHubRemote(repo.repositoryUrl),
+    token: repo.token,
+    remoteName: payload.remote ?? "origin",
+    remoteUrl: repo.repositoryUrl,
+    title: String(payload.title).trim(),
+    description: String(payload.description ?? "").trim(),
+    label: payload.label
+  });
+
+  return {
+    ...issue,
+    ok: true,
+    repositoryFolder: repo.folder,
+    repositoryUrl: repo.repositoryUrl
+  };
+}
+
 async function commitIssueViaGit({
   repoRoot,
   files,
@@ -498,6 +539,52 @@ async function runGitCommand(args, cwd) {
       reject(new Error(`Git command failed: git ${args.join(" ")}\n${reason}`));
     });
   });
+}
+
+async function createRepositoryIssue({
+  repository,
+  token,
+  remoteName,
+  remoteUrl,
+  title,
+  description,
+  label
+}) {
+  const url = new URL(`${repository.apiBaseUrl}/repos/${repository.owner}/${repository.repo}/issues`);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      title,
+      body: description,
+      ...(label ? { labels: [String(label).trim()] } : {})
+    })
+  });
+
+  if (!response.ok) {
+    const body = await safeReadJson(response);
+    throw new Error(buildRepositoryApiError({
+      action: "create issue",
+      repository,
+      remoteName,
+      remoteUrl,
+      tokenPresent: Boolean(token),
+      response,
+      body
+    }));
+  }
+
+  const created = await response.json();
+  return {
+    number: created.number,
+    title: created.title,
+    description: created.body ?? "",
+    htmlUrl: created.html_url,
+    state: created.state
+  };
 }
 
 async function readVault(vaultPath) {

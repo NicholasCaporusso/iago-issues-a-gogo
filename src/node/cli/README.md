@@ -69,7 +69,7 @@ Stage files, create the issue-fix commit, and close the issue on GitHub.
 
 ### `report` / `create-issue`
 
-Create a new issue on the remote repository.
+Create a new issue on the remote repository. If no token is available, the CLI uses the relay automatically.
 
 ## Options
 
@@ -85,7 +85,7 @@ Create a new issue on the remote repository.
 - `--push`: Push after `completed`.
 - `--save`: Ask the relay flow to push after `completed`.
 - `--branch <name>`: Push target branch for `completed`.
-- `--relay`: Send `completed` to the local `iago-server` instead of committing directly.
+- `--relay`: Send `report` or `completed` to the local `iago-server` instead of using a direct GitHub token.
 - `--relay-url <url>`: `iago-server` base URL. Defaults to the shared relay config.
 - `--port <number>`: Update the shared relay config when using `set-port`.
 - `--json`: Print the full result as JSON.

@@ -116,7 +116,7 @@ The `iago` CLI is the main working surface for repository-level issue management
 - `show`: Print a single issue from the local backlog file.
 - `start-issue`: Create or switch to the branch for an issue.
 - `completed`: Stage files, commit the work, and close the issue.
-- `report`: Create a new issue on the remote repository.
+- `report`: Create a new issue on the remote repository. Uses the relay automatically when no token is available.
 - `create-issue`: Same as `report`.
 - `set-port`: Update the shared relay config with a new server port.
 - `about`: Show project ownership and contact information.
@@ -136,7 +136,7 @@ The `iago` CLI is the main working surface for repository-level issue management
 - `--json`: Print the full result as JSON.
 - `--output <path>`: Save the full result as JSON to a file.
 - `--all`: Include improvement and feature issues in list output.
-- `--relay`: Send `completed` through the local `iago-server`.
+- `--relay`: Send `report` or `completed` through the local `iago-server`.
 - `--relay-url <url>`: `iago-server` base URL. Defaults to the shared relay config.
 - `--port <number>`: Update the shared relay config when using `set-port`.
 
