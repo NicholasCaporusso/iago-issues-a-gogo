@@ -51,7 +51,7 @@ fn run() -> Result<(), String> {
         }
         "list" => {
             let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
-            let backlog = ensure_backlog(&repo_root, &options)?;
+            let backlog = sync_issues(&repo_root, &options)?;
             render_issue_collection(&filter_backlog_issues(&backlog, options.all), &options)?;
         }
         "show" => {
@@ -1012,7 +1012,7 @@ Commands:\n\
   sync                sync [--cwd <path>] [--remote <name>] [--token <token>] [--all] [--json] [--output <path>]\n\
                       Download open issues and save .backlog/issues.json.\n\
   list                list [--cwd <path>] [--all] [--json] [--output <path>]\n\
-                      Read and print issues from .backlog/issues.json.\n\
+                      Sync open issues, then read and print issues from .backlog/issues.json.\n\
   show                show --issue <number> [--cwd <path>] [--json]\n\
                       Print one issue from .backlog/issues.json.\n\
   start-issue         start-issue --issue <number> [--cwd <path>]\n\

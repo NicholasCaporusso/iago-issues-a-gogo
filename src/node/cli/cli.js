@@ -44,7 +44,7 @@ async function main() {
       }
       case "list": {
         const repoRoot = await getRepoRoot(options);
-        const backlog = await ensureBacklog(repoRoot, options);
+        const backlog = await syncIssues(repoRoot, options);
         renderIssueCollection(filterOpenIssues(backlog, options), options);
         return;
       }
@@ -1859,7 +1859,7 @@ function printHelp() {
 
   Commands:
   sync                Download open issues and save .backlog/issues.json. Falls back to the relay server when no token is provided.
-  list                Read and print issues from .backlog/issues.json.
+  list                Sync open issues, then read and print issues from .backlog/issues.json.
   show                Print one issue from .backlog/issues.json.
   start-issue         Create or switch to the branch for an issue.
   completed           Stage files, commit progress for an issue, and close it.

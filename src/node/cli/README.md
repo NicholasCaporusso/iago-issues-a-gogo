@@ -4,7 +4,7 @@ This is the main command-line entrypoint for working with GitHub issues from a l
 
 The CLI can:
 - sync open issues into a local backlog file
-- list and inspect backlog issues
+- sync open issues before listing backlog issues
 - start an issue branch
 - create a commit for an issue and close it on GitHub
 - create issues on the remote repository
@@ -53,7 +53,7 @@ If no token is provided, the CLI falls back to the local `iago-server`.
 
 ### `list`
 
-Read and print issues from `.backlog/issues.json`.
+Sync open issues, then read and print issues from `.backlog/issues.json`.
 
 ### `show`
 

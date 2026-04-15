@@ -39,7 +39,7 @@ powershell -File ./build/windows/installer/build-installer.ps1
 The Rust CLI implements the local workflow:
 
 - `sync`
-- `list`
+- `list` (syncs first)
 - `show`
 - `start-issue`
 - `completed`

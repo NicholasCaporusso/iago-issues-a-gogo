@@ -112,7 +112,7 @@ The `iago` CLI is the main working surface for repository-level issue management
 ### Commands
 
 - `sync`: Download open GitHub issues and store them locally in `.backlog/issues.json`.
-- `list`: Print issues from the local backlog file.
+- `list`: Sync open issues, then print them from the local backlog file.
 - `show`: Print a single issue from the local backlog file.
 - `start-issue`: Create or switch to the branch for an issue.
 - `completed`: Stage files, commit the work, and close the issue.
