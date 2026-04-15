@@ -51,6 +51,9 @@ async function main() {
       case "add":
         await addRepoCommand(options);
         return;
+      case "delete":
+        await deleteRepoCommand(options);
+        return;
       case "issues":
         await printVaultIssueCounts(options.vaultPath);
         return;
@@ -175,6 +178,24 @@ async function addRepoCommand(options) {
   console.log(`Stored ${normalizedUrl} -> ${repoRoot}`);
 }
 
+async function deleteRepoCommand(options) {
+  if (!options.url) {
+    throw new Error("The delete command requires --url <repository-url>.");
+  }
+
+  const normalizedUrl = normalizeRepositoryRemote(options.url);
+  const vault = await readVault(options.vaultPath);
+  const beforeLength = vault.repos.length;
+  vault.repos = vault.repos.filter((repo) => normalizeRepositoryRemote(repo.repositoryUrl) !== normalizedUrl);
+
+  if (vault.repos.length === beforeLength) {
+    throw new Error(`Repository not found in vault: ${normalizedUrl}`);
+  }
+
+  await writeVault(options.vaultPath, vault);
+  console.log(`Deleted ${normalizedUrl} from the vault`);
+}
+
 async function setPortCommand(options) {
   if (!options.portProvided) {
     throw new Error("The set-port command requires --port <number>.");
@@ -281,6 +302,12 @@ async function startVaultRepl(options, relayConfig, hooks = {}) {
       if (normalizedCommand === "add") {
         const repoOptions = await buildRepoEntryFromReplArgs(rl, options.vaultPath, args);
         await addRepoCommand(repoOptions);
+        continue;
+      }
+
+      if (normalizedCommand === "delete") {
+        const deleteOptions = await buildDeleteRepoArgs(rl, options.vaultPath, args);
+        await deleteRepoCommand(deleteOptions);
         continue;
       }
 
@@ -594,12 +621,13 @@ function respondJson(response, statusCode, body) {
 function printHelp(relayConfig) {
   console.log(`iago-server
 
-Usage:
-  iago-server serve [--host 127.0.0.1] [--port <port>]
-  iago-server repl
-  iago-server add --url <repository-url> --folder <repository-folder> --token <github-token>
-  iago-server issues
-  iago-server set-port --port <port>
+  Usage:
+    iago-server serve [--host 127.0.0.1] [--port <port>]
+    iago-server repl
+    iago-server add --url <repository-url> --folder <repository-folder> --token <github-token>
+    iago-server delete --url <repository-url>
+    iago-server issues
+    iago-server set-port --port <port>
 
 Options:
   --host <host>     Host to bind the relay server to. Defaults to 127.0.0.1.
@@ -619,11 +647,13 @@ The serve command starts the HTTP listener and opens the REPL in the same proces
 
 function printReplHelp(relayConfig) {
   console.log(`
-Commands:
-  add [--url <url>] [--folder <path>] [--token <token>]
-            Add or update a repository in the relay vault.
-  issues    Check how many open issues each stored repository has.
-  list      Show the repositories currently stored in the vault.
+  Commands:
+    add [--url <url>] [--folder <path>] [--token <token>]
+              Add or update a repository in the relay vault.
+    delete    delete --url <url>
+              Remove a repository from the relay vault.
+    issues    Check how many open issues each stored repository has.
+    list      Show the repositories currently stored in the vault.
   set-port  set-port <port>
             Update the shared relay config with a new server port.
   help      Show this help.
@@ -645,6 +675,17 @@ async function buildRepoEntryFromReplArgs(rl, vaultPath, args) {
   command: "add",
     folder,
     token,
+    url: repositoryUrl,
+    vaultPath
+  };
+}
+
+async function buildDeleteRepoArgs(rl, vaultPath, args) {
+  const parsed = parseReplFlags(args);
+  const repositoryUrl = parsed.url ?? (await rl.question("Repository URL: ")).trim();
+
+  return {
+    command: "delete",
     url: repositoryUrl,
     vaultPath
   };
@@ -693,6 +734,9 @@ function parseReplFlags(args) {
         break;
       case "--token":
         result.token = requireReplValue(args, ++index, "--token");
+        break;
+      case "--help":
+      case "-h":
         break;
       default:
         throw new Error(`Unknown REPL argument: ${current}`);

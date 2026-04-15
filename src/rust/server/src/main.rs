@@ -101,6 +101,10 @@ fn run() -> Result<(), String> {
             let options = parse_add_repo_options(&remaining_args, default_vault_path(), false)?;
             add_repo_command(&options)?;
         }
+        "delete" => {
+            let options = parse_delete_repo_options(&remaining_args, default_vault_path(), false)?;
+            delete_repo_command(&options)?;
+        }
         "set-port" => {
             let options = parse_server_options(&remaining_args, relay_port)?;
             set_port_command(&options)?;
@@ -168,6 +172,13 @@ struct AddRepoOptions {
     repository_url: Option<String>,
     folder: Option<String>,
     token: Option<String>,
+    interactive: bool,
+}
+
+#[derive(Debug, Clone)]
+struct DeleteRepoOptions {
+    vault_path: PathBuf,
+    repository_url: Option<String>,
     interactive: bool,
 }
 
@@ -265,6 +276,42 @@ fn parse_add_repo_options(
             "--token" => {
                 index += 1;
                 options.token = Some(require_value(argv, index, "--token")?);
+            }
+            "--help" | "-h" => {
+                return Ok(options);
+            }
+            value => {
+                return Err(format!("Unknown argument: {value}"));
+            }
+        }
+
+        index += 1;
+    }
+
+    Ok(options)
+}
+
+fn parse_delete_repo_options(
+    argv: &[String],
+    default_vault_path: PathBuf,
+    interactive: bool,
+) -> Result<DeleteRepoOptions, String> {
+    let mut options = DeleteRepoOptions {
+        vault_path: default_vault_path,
+        repository_url: None,
+        interactive,
+    };
+    let mut index = 0;
+
+    while index < argv.len() {
+        match argv[index].as_str() {
+            "--vault" => {
+                index += 1;
+                options.vault_path = PathBuf::from(require_value(argv, index, "--vault")?);
+            }
+            "--url" => {
+                index += 1;
+                options.repository_url = Some(require_value(argv, index, "--url")?);
             }
             "--help" | "-h" => {
                 return Ok(options);
@@ -505,6 +552,10 @@ fn run_repl_loop(
                 let options = parse_add_repo_options(&command_args, vault_path.to_path_buf(), true)?;
                 add_repo_command(&options)?;
             }
+            "delete" => {
+                let options = parse_delete_repo_options(&command_args, vault_path.to_path_buf(), true)?;
+                delete_repo_command(&options)?;
+            }
             "set-port" => {
                 let port = parse_repl_port(&command_args)?;
                 set_port_command(&ServerOptions {
@@ -663,6 +714,29 @@ fn add_repo_command(options: &AddRepoOptions) -> Result<(), String> {
         normalize_repository_remote(&repository_url),
         find_git_root(Path::new(&folder))?.display()
     );
+    Ok(())
+}
+
+fn delete_repo_command(options: &DeleteRepoOptions) -> Result<(), String> {
+    let repository_url = match options.repository_url.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value.to_owned(),
+        None if options.interactive => prompt_value("Repository URL: ")?,
+        None => {
+            return Err("The delete command requires --url <repository-url>.".to_owned());
+        }
+    };
+
+    let normalized_url = normalize_repository_remote(&repository_url);
+    let mut vault = read_vault(&options.vault_path)?;
+    let original_len = vault.repos.len();
+    vault.repos.retain(|repo| normalize_repository_remote(&repo.repository_url) != normalized_url);
+
+    if vault.repos.len() == original_len {
+        return Err(format!("Repository not found in vault: {normalized_url}"));
+    }
+
+    write_vault(&options.vault_path, &vault)?;
+    println!("Deleted {normalized_url} from the vault");
     Ok(())
 }
 
@@ -1498,12 +1572,13 @@ fn print_help(default_port: u16) -> Result<(), String> {
         "iago-server\n\n\
 Usage:\n\
   iago-server serve [--host 127.0.0.1] [--port <port>] [--vault <path>]\n\
-  iago-server repl [--vault <path>]\n\
-  iago-server list [--vault <path>]\n\
-  iago-server issues [--vault <path>]\n\
-  iago-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
-  iago-server client help\n\
-  iago-server set-port --port <port>\n\n\
+    iago-server repl [--vault <path>]\n\
+    iago-server list [--vault <path>]\n\
+    iago-server issues [--vault <path>]\n\
+    iago-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
+    iago-server delete --url <repository-url> [--vault <path>]\n\
+    iago-server client help\n\
+    iago-server set-port --port <port>\n\n\
 Default command:\n\
   repl\n\n\
 Shared relay config:" 
