@@ -48,6 +48,12 @@ async function main() {
       case "repl":
         await startVaultRepl(options, relayConfig);
         return;
+      case "client":
+        if (options.commandArgs[0] === "help") {
+          printClientHelp();
+          return;
+        }
+        break;
       case "add":
         await addRepoCommand(options);
         return;
@@ -72,6 +78,7 @@ async function main() {
 function parseArgs(argv, defaultPort) {
   const options = {
     command: argv[0] ?? "serve",
+    commandArgs: argv.slice(1),
     folder: null,
     host: DEFAULT_HOST,
     port: defaultPort,
@@ -293,6 +300,11 @@ async function startVaultRepl(options, relayConfig, hooks = {}) {
 
       if (normalizedCommand === "help") {
         printReplHelp(relayConfig);
+        continue;
+      }
+
+      if (normalizedCommand === "client" && args[0] === "help") {
+        printClientHelp();
         continue;
       }
 
@@ -709,12 +721,17 @@ function printHelp(relayConfig) {
   console.log(`iago-server
 
   Usage:
-    iago-server serve [--host 127.0.0.1] [--port <port>]
+    iago-server serve [--host 127.0.0.1] [--port <port>] [--vault <path>]
     iago-server repl
+    iago-server list [--vault <path>]
+    iago-server issues [--vault <path>]
     iago-server add --url <repository-url> --folder <repository-folder> --token <github-token>
     iago-server delete --url <repository-url>
-    iago-server issues
+    iago-server client help
     iago-server set-port --port <port>
+
+Default command:
+  repl
 
 Options:
   --host <host>     Host to bind the relay server to. Defaults to 127.0.0.1.
@@ -735,20 +752,55 @@ The serve command starts the HTTP listener and opens the REPL in the same proces
 function printReplHelp(relayConfig) {
   console.log(`
   Commands:
-    add [--url <url>] [--folder <path>] [--token <token>]
-              Add or update a repository in the relay vault.
-    delete    delete --url <url>
-              Remove a repository from the relay vault.
-    issues    Check how many open issues each stored repository has.
-    list      Show the repositories currently stored in the vault.
-  set-port  set-port <port>
-            Update the shared relay config with a new server port.
-  help      Show this help.
-  quit      Leave the REPL and stop the HTTP server when running under serve.
+    help      Show this help.
+    client    client help
+              Show the client command reference.
+    list      list [--vault <path>]
+              Show repositories currently stored in the vault.
+    add       add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]
+              Add or update a repository in the vault.
+    delete    delete --url <repository-url> [--vault <path>]
+              Remove a repository from the vault.
+    issues    issues [--vault <path>]
+              Check the number of open issues for each stored repository.
+    set-port  set-port <port>
+              Update the shared relay config with a new server port.
+    quit      Leave the REPL.
+    exit      Same as quit.
 
 Shared relay config:
   ${relayConfig.configPath}
   Default port: ${relayConfig.relayPort}
+`);
+}
+
+function printClientHelp() {
+  console.log(`iago
+
+Usage:
+  iago sync [--cwd <path>] [--remote <name>] [--token <token>] [--relay] [--relay-url <url>]
+  iago list [--cwd <path>] [--all] [--json] [--output <path>]
+  iago show --issue <number> [--cwd <path>] [--json] [--output <path>]
+  iago start-issue --issue <number> [--cwd <path>]
+  iago completed --issue <number> --files <paths>... [--cwd <path>] [--title <text>] [--description <text>] [--token <token>] [--push] [--branch <name>] [--json] [--relay] [--save]
+  iago report --title <text> --description <text> --label <bug|improvement|feature> [--cwd <path>] [--token <token>] [--json] [--output <path>]
+  iago create-issue --title <text> --description <text> --label <bug|improvement|feature> [--cwd <path>] [--token <token>] [--json] [--output <path>]
+  iago set-port --port <number>
+
+Commands:
+  sync         Download open GitHub issues into the local backlog.
+  list         Print issues from the local backlog.
+  show         Print one issue from the local backlog.
+  start-issue  Create or switch to the branch for an issue.
+  completed    Stage files, commit the work, and close the issue.
+  report       Create a new issue on the remote repository.
+  create-issue Same as report.
+  set-port     Update the shared relay config with a new server port.
+
+Authentication:
+  --token <token>
+  GITHUB_TOKEN
+  GH_TOKEN
 `);
 }
 
