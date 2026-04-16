@@ -15,6 +15,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 ChangesEnvironment=yes
 SetupIconFile=..\..\..\assets\iago-icon.ico
+WizardImageFile=..\..\..\assets\installer_image_large.png
+WizardSmallImageFile=..\..\..\assets\iago-icon.png
 UninstallDisplayIcon={app}\bin\iago-server.exe
 DisableProgramGroupPage=yes
 
