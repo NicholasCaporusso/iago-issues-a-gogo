@@ -171,7 +171,7 @@ The `iago-server` binary is the local companion process.
 - `issues`: Print issue counts for each repository in the relay vault without downloading the full issue list.
 - `set-port`: Update the shared relay config with a new server port.
 - `about`: Show project ownership and contact information.
-- `client help`: Show the `iago` client command reference.
+- `client [help]`: Show the `iago` client command reference.
 
 If you run the server without a command, it defaults to `repl`.
 
@@ -213,7 +213,7 @@ Inside the relay REPL:
 - `issues`: Print issue counts for each repository in the vault without downloading the full issue list
 - `set-port`: Update the shared relay config with a new server port
 - `about`: Show project ownership and contact information
-- `client help`: Show the `iago` client command reference
+- `client [help]`: Show the `iago` client command reference
 - `help`: Show REPL help
 - `quit`: Exit the REPL
 - `exit`: Same as `quit`

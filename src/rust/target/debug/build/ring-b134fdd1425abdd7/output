@@ -17,6 +17,8 @@ cargo:rerun-if-env-changed=VSTEL_MSBuildProjectFullPath
 VSTEL_MSBuildProjectFullPath = None
 cargo:rerun-if-env-changed=VCToolsVersion
 VCToolsVersion = None
+cargo:rerun-if-env-changed=VCToolsVersion
+VCToolsVersion = None
 cargo:rerun-if-env-changed=VSCMD_ARG_VCVARS_SPECTRE
 VSCMD_ARG_VCVARS_SPECTRE = None
 cargo:rerun-if-env-changed=WindowsSdkDir
@@ -25,7 +27,7 @@ cargo:rerun-if-env-changed=WindowsSDKVersion
 WindowsSDKVersion = None
 cargo:rerun-if-env-changed=LIB
 LIB = None
-PATH = Some(C:\workspace\tools-github-issues-resolver\src\rust\target\debug\deps;C:\Users\celes\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib;C:\Users\celes\.cargo\bin;C:\Users\celes\.codex\tmp\arg0\codex-arg0lOOvEr;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\nodejs\;C:\Users\celes\AppData\Local\Microsoft\WindowsApps;C:\Users\celes\AppData\Roaming\npm;C:\Users\celes\AppData\Local\OpenAI\Codex\bin;C:\Program Files\WindowsApps\OpenAI.Codex_26.409.1734.0_x64__2p2nqsd0c76g0\app\resources;C:\Users\celes\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin)
+PATH = Some(D:\Tools\tools-IAGO\src\rust\target\debug;D:\Tools\tools-IAGO\src\rust\target\debug\deps;C:\Users\Nicholas\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib;C:\Program Files (x86)\Common Files\Oracle\Java\java8path;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\Python313\Scripts\;C:\Python313\;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\dotnet\;C:\Program Files\nodejs\;C:\ProgramData\chocolatey\bin;C:\Program Files (x86)\Graphviz\bin;D:\xampp\php;C:\ProgramData\ComposerSetup\bin;C:\Program Files\Git\cmd;C:\Program Files\IAGO\bin;C:\Users\Nicholas\.cargo\bin;C:\Users\Nicholas\AppData\Local\Microsoft\WindowsApps;C:\Users\Nicholas\AppData\Roaming\npm;C:\Users\Nicholas\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\Nicholas\AppData\Local\Programs\Ollama;C:\Users\Nicholas\AppData\Roaming\Composer\vendor\bin;C:\Users\Nicholas\.dotnet\tools;D:\Projects\projects-inspiredfrequencies\tools\ffmpeg\bin;C:\Users\Nicholas\.local\bin;C:\Users\Nicholas\AppData\Local\Programs\Antigravity\bin;C:\Users\Nicholas\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin)
 cargo:rerun-if-env-changed=INCLUDE
 INCLUDE = None
 cargo:rerun-if-env-changed=CC_x86_64-pc-windows-msvc
@@ -68,6 +70,8 @@ cargo:rerun-if-env-changed=VSTEL_MSBuildProjectFullPath
 VSTEL_MSBuildProjectFullPath = None
 cargo:rerun-if-env-changed=VCToolsVersion
 VCToolsVersion = None
+cargo:rerun-if-env-changed=VCToolsVersion
+VCToolsVersion = None
 cargo:rerun-if-env-changed=VSCMD_ARG_VCVARS_SPECTRE
 VSCMD_ARG_VCVARS_SPECTRE = None
 cargo:rerun-if-env-changed=WindowsSdkDir
@@ -76,7 +80,7 @@ cargo:rerun-if-env-changed=WindowsSDKVersion
 WindowsSDKVersion = None
 cargo:rerun-if-env-changed=LIB
 LIB = None
-PATH = Some(C:\workspace\tools-github-issues-resolver\src\rust\target\debug\deps;C:\Users\celes\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib;C:\Users\celes\.cargo\bin;C:\Users\celes\.codex\tmp\arg0\codex-arg0lOOvEr;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\nodejs\;C:\Users\celes\AppData\Local\Microsoft\WindowsApps;C:\Users\celes\AppData\Roaming\npm;C:\Users\celes\AppData\Local\OpenAI\Codex\bin;C:\Program Files\WindowsApps\OpenAI.Codex_26.409.1734.0_x64__2p2nqsd0c76g0\app\resources;C:\Users\celes\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin)
+PATH = Some(D:\Tools\tools-IAGO\src\rust\target\debug;D:\Tools\tools-IAGO\src\rust\target\debug\deps;C:\Users\Nicholas\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib;C:\Program Files (x86)\Common Files\Oracle\Java\java8path;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\Python313\Scripts\;C:\Python313\;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\dotnet\;C:\Program Files\nodejs\;C:\ProgramData\chocolatey\bin;C:\Program Files (x86)\Graphviz\bin;D:\xampp\php;C:\ProgramData\ComposerSetup\bin;C:\Program Files\Git\cmd;C:\Program Files\IAGO\bin;C:\Users\Nicholas\.cargo\bin;C:\Users\Nicholas\AppData\Local\Microsoft\WindowsApps;C:\Users\Nicholas\AppData\Roaming\npm;C:\Users\Nicholas\AppData\Local\Programs\Microsoft VS Code\bin;C:\Users\Nicholas\AppData\Local\Programs\Ollama;C:\Users\Nicholas\AppData\Roaming\Composer\vendor\bin;C:\Users\Nicholas\.dotnet\tools;D:\Projects\projects-inspiredfrequencies\tools\ffmpeg\bin;C:\Users\Nicholas\.local\bin;C:\Users\Nicholas\AppData\Local\Programs\Antigravity\bin;C:\Users\Nicholas\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin)
 cargo:rerun-if-env-changed=INCLUDE
 INCLUDE = None
 cargo:rerun-if-env-changed=CC_x86_64-pc-windows-msvc
@@ -99,7 +103,7 @@ cargo:rerun-if-env-changed=CFLAGS_x86_64-pc-windows-msvc
 CFLAGS_x86_64-pc-windows-msvc = None
 constant_time_test.c
 cargo:rustc-link-lib=static=ring_core_0_17_14__test
-cargo:rustc-link-search=native=C:\workspace\tools-github-issues-resolver\src\rust\target\debug\build\ring-b134fdd1425abdd7\out
+cargo:rustc-link-search=native=D:\Tools\tools-IAGO\src\rust\target\debug\build\ring-b134fdd1425abdd7\out
 cargo:rerun-if-changed=crypto\chacha\asm\chacha-armv4.pl
 cargo:rerun-if-changed=crypto\chacha\asm\chacha-armv8.pl
 cargo:rerun-if-changed=crypto\chacha\asm\chacha-x86.pl

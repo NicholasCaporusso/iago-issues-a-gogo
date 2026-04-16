@@ -16,7 +16,6 @@ use iago_shared::{
     relay_config_path,
     resolve_repository_context,
     write_relay_port,
-    workspace_banner,
     Backlog,
     Issue,
     write_backlog,
@@ -68,11 +67,7 @@ fn run() -> Result<(), String> {
             #[cfg(not(target_os = "windows"))]
             {
                 let server = start_http_server(&options.host, options.port, &options.vault_path)?;
-                println!("{}", workspace_banner("iago-server serve"));
-                println!(
-                    "Listening on http://{}:{}",
-                    options.host, options.port
-                );
+                print_server_banner("serve", &options.host, options.port, &options.vault_path, relay_port);
                 run_repl_loop("iago-server> ", &options.vault_path, Some(&server), relay_port)?;
                 server.stop();
             }
@@ -85,7 +80,7 @@ fn run() -> Result<(), String> {
             }
             #[cfg(not(target_os = "windows"))]
             {
-                println!("IAGO (Issues A-GOgo) server");
+                print_server_banner("repl", &options.host, options.port, &options.vault_path, relay_port);
                 run_repl_loop("iago-server> ", &options.vault_path, None, relay_port)?;
             }
         }
@@ -112,7 +107,10 @@ fn run() -> Result<(), String> {
         "about" => {
             print_about();
         }
-        "client" if remaining_args.first().map(|value| value.as_str()) == Some("help") => {
+        "client"
+            if remaining_args.is_empty()
+                || remaining_args.first().map(|value| value.as_str()) == Some("help") =>
+        {
             print_client_help();
         }
         other => {
@@ -130,15 +128,12 @@ fn run_windows_server_mode(
     open_repl: bool,
 ) -> Result<(), String> {
     let server = start_http_server(&options.host, options.port, &options.vault_path)?;
-    let banner = if open_repl {
-        "IAGO (Issues A-GOgo) server".to_owned()
-    } else {
-        workspace_banner("iago-server serve")
-    };
-    println!("{}", banner);
-    println!(
-        "Listening on http://{}:{}",
-        options.host, options.port
+    print_server_banner(
+        if open_repl { "repl" } else { "serve" },
+        &options.host,
+        options.port,
+        &options.vault_path,
+        relay_port,
     );
 
     if open_repl {
@@ -527,7 +522,7 @@ fn run_repl_loop(
     let mut stdout = io::stdout();
     let mut input = String::new();
 
-    println!("Type 'help' for commands, or 'quit' to exit.");
+    println!("  Tip: type 'help' for commands, 'client' for the client reference, or 'quit' to exit.");
 
     loop {
         input.clear();
@@ -556,7 +551,10 @@ fn run_repl_loop(
         match command.as_str() {
             "quit" | "exit" => break,
             "help" => print_repl_help(default_port),
-            "client" if command_args.first().map(|value| value.as_str()) == Some("help") => {
+            "client"
+                if command_args.is_empty()
+                    || command_args.first().map(|value| value.as_str()) == Some("help") =>
+            {
                 print_client_help();
             }
             "about" => print_about(),
@@ -633,10 +631,11 @@ fn print_vault_entries(vault_path: &Path) -> Result<(), String> {
     let vault = read_vault(vault_path)?;
 
     if vault.repos.is_empty() {
-        println!("No repositories are stored in the vault.");
+        println!("[vault] No repositories are stored.");
         return Ok(());
     }
 
+    print_section_header("Vault Entries");
     for repo in vault.repos {
         let token_note = if repo.token.trim().is_empty() {
             " (no token)".to_owned()
@@ -644,7 +643,7 @@ fn print_vault_entries(vault_path: &Path) -> Result<(), String> {
             " (token stored)".to_owned()
         };
 
-        println!("- {} -> {}{}", repo.repository_url, repo.folder, token_note);
+        println!("  - {} -> {}{}", repo.repository_url, repo.folder, token_note);
     }
 
     Ok(())
@@ -654,14 +653,15 @@ fn print_vault_issue_counts(vault_path: &Path) -> Result<(), String> {
     let vault = read_vault(vault_path)?;
 
     if vault.repos.is_empty() {
-        println!("No repositories are stored in the vault.");
+        println!("[vault] No repositories are stored.");
         return Ok(());
     }
 
+    print_section_header("Open Issue Counts");
     for repo in vault.repos {
         let result = fetch_repository_backlog(&repo)?;
         println!(
-            "- {} -> {}: {} open issues",
+            "  - {} -> {}: {} open issues",
             repo.repository_url,
             repo.folder,
             result.issue_count
@@ -723,10 +723,13 @@ fn add_repo_command(options: &AddRepoOptions) -> Result<(), String> {
     };
 
     store_repo(&options.vault_path, &repository_url, &folder, &token)?;
-    println!(
-        "Stored {} -> {}",
-        normalize_repository_remote(&repository_url),
-        find_git_root(Path::new(&folder))?.display()
+    print_status(
+        "saved",
+        &format!(
+            "{} -> {}",
+            normalize_repository_remote(&repository_url),
+            find_git_root(Path::new(&folder))?.display()
+        ),
     );
     Ok(())
 }
@@ -750,7 +753,7 @@ fn delete_repo_command(options: &DeleteRepoOptions) -> Result<(), String> {
     }
 
     write_vault(&options.vault_path, &vault)?;
-    println!("Deleted {normalized_url} from the vault");
+    print_status("deleted", &normalized_url);
     Ok(())
 }
 
@@ -760,12 +763,9 @@ fn set_port_command(options: &ServerOptions) -> Result<(), String> {
     }
 
     let config_path = write_relay_port(options.port)?;
-    println!(
-        "Relay port updated to {} in {}",
-        options.port,
-        config_path.display()
-    );
-    println!("Restart the relay server for the new port to take effect.");
+    print_status("relay port updated", &options.port.to_string());
+    println!("  config: {}", config_path.display());
+    println!("  restart the relay server for the new port to take effect.");
     Ok(())
 }
 
@@ -1662,86 +1662,158 @@ fn print_repl_help(default_port: u16) {
     let config_path = relay_config_path()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|_| "relay-config.json".to_owned());
-    println!(
-        "Commands:\n\
-  help      Show this help.\n\
-  client    client help\n\
-            Show the client command reference.\n\
-  list      list [--vault <path>]\n\
-            Show repositories currently stored in the vault.\n\
-  add       add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
-            Add or update a repository in the vault.\n\
-  issues    issues [--vault <path>]\n\
-            Check the number of open issues for each stored repository.\n\
-  set-port  set-port <port>\n\
-            Update the shared relay config with a new server port.\n\
-  quit      Leave the REPL.\n\
-  exit      Same as quit.\n\n\
-Shared relay config:"
+    print_section_header("REPL Commands");
+    print_command_pair("help", "Show this help.");
+    print_command_pair("client", "client [help]");
+    print_detail("Show the client command reference.");
+    print_command_pair("list", "list [--vault <path>]");
+    print_detail("Show repositories currently stored in the vault.");
+    print_command_pair(
+        "add",
+        "add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]",
     );
-    println!("  {}", config_path);
-    println!("  Default port: {}", default_port);
-    println!("Default vault:");
-    println!("  {}", vault_path.display());
-    println!("---Developed by Nicholas Caporusso (info@cprnhl.com)");
+    print_detail("Add or update a repository in the vault.");
+    print_command_pair("delete", "delete --url <repository-url> [--vault <path>]");
+    print_detail("Remove a repository from the vault.");
+    print_command_pair("issues", "issues [--vault <path>]");
+    print_detail("Check the number of open issues for each stored repository.");
+    print_command_pair("set-port", "set-port <port>");
+    print_detail("Update the shared relay config with a new server port.");
+    print_command_pair("quit", "Leave the REPL.");
+    print_command_pair("exit", "Same as quit.");
+    print_key_value_block(
+        "Shared State",
+        &[
+            ("Shared config", config_path.as_str()),
+            ("Default port", &default_port.to_string()),
+            ("Default vault", &vault_path.display().to_string()),
+        ],
+    );
+    print_signature();
 }
 
 fn print_client_help() {
-    println!(
-        "iago\n\n\
-Usage:\n\
-  iago sync [--cwd <path>] [--remote <name>] [--token <token>] [--relay] [--relay-url <url>]\n\
-  iago list [--cwd <path>] [--all] [--json] [--output <path>]\n\
-  iago show --issue <number> [--cwd <path>] [--json] [--output <path>]\n\
-  iago start-issue --issue <number> [--cwd <path>]\n\
-  iago completed --issue <number> --files <paths>... [--cwd <path>] [--title <text>] [--description <text>] [--token <token>] [--push] [--branch <name>] [--json] [--relay] [--save]\n\
-  iago report --title <text> --description <text> --label <bug|improvement|feature> [--cwd <path>] [--token <token>] [--json] [--output <path>]\n\
-  iago create-issue --title <text> --description <text> --label <bug|improvement|feature> [--cwd <path>] [--token <token>] [--json] [--output <path>]\n\
-  iago set-port --port <number>\n\n\
-Commands:\n\
-  sync         Download open GitHub issues into the local backlog.\n\
-  list         Print issues from the local backlog.\n\
-  show         Print one issue from the local backlog.\n\
-  start-issue  Create or switch to the branch for an issue.\n\
-  completed    Stage files, commit the work, and close the issue.\n\
-  report       Create a new issue on the remote repository.\n\
-  create-issue Same as report.\n\
-  set-port     Update the shared relay config with a new server port.\n\n\
-Authentication:\n\
-  --token <token>\n\
-  GITHUB_TOKEN\n\
-  GH_TOKEN\n"
+    print_section_header("Client Usage");
+    print_command_pair(
+        "iago sync",
+        "[--cwd <path>] [--remote <name>] [--token <token>] [--relay] [--relay-url <url>]",
     );
-    println!("  about        ---Developed by Nicholas Caporusso (info@cprnhl.com)");
+    print_command_pair("iago list", "[--cwd <path>] [--all] [--json] [--output <path>]");
+    print_command_pair("iago show", "--issue <number> [--cwd <path>] [--json] [--output <path>]");
+    print_command_pair("iago start-issue", "--issue <number> [--cwd <path>]");
+    print_command_pair(
+        "iago completed",
+        "--issue <number> --files <paths>... [--cwd <path>] [--title <text>] [--description <text>] [--token <token>] [--push] [--branch <name>] [--json] [--relay] [--save]",
+    );
+    print_command_pair(
+        "iago report",
+        "--title <text> --description <text> --label <bug|improvement|feature> [--cwd <path>] [--token <token>] [--json] [--output <path>]",
+    );
+    print_command_pair(
+        "iago create-issue",
+        "--title <text> --description <text> --label <bug|improvement|feature> [--cwd <path>] [--token <token>] [--json] [--output <path>]",
+    );
+    print_command_pair("iago set-port", "--port <number>");
+    print_section_header("Client Commands");
+    print_command_pair("sync", "Download open GitHub issues into the local backlog.");
+    print_command_pair("list", "Print issues from the local backlog.");
+    print_command_pair("show", "Print one issue from the local backlog.");
+    print_command_pair("start-issue", "Create or switch to the branch for an issue.");
+    print_command_pair("completed", "Stage files, commit the work, and close the issue.");
+    print_command_pair("report", "Create a new issue on the remote repository.");
+    print_command_pair("create-issue", "Same as report.");
+    print_command_pair("set-port", "Update the shared relay config with a new server port.");
+    print_key_value_block(
+        "Authentication",
+        &[("Environment", "GITHUB_TOKEN or GH_TOKEN"), ("Fallback", "--token <token>")],
+    );
+    print_signature();
 }
 
 fn print_help(default_port: u16) -> Result<(), String> {
     let vault_path = default_vault_path();
     let config_path = relay_config_path()?;
-    println!(
-        "iago-server\n\n\
-Usage:\n\
-  iago-server serve [--host 127.0.0.1] [--port <port>] [--vault <path>]\n\
-    iago-server repl [--vault <path>]\n\
-    iago-server list [--vault <path>]\n\
-    iago-server issues [--vault <path>]\n\
-    iago-server add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]\n\
-    iago-server delete --url <repository-url> [--vault <path>]\n\
-    iago-server client help\n\
-    iago-server set-port --port <port>\n\n\
-Default command:\n\
-  repl\n\n\
-Shared relay config:" 
+    print_section_header("iago-server Commands");
+    print_command_pair("serve", "serve [--host 127.0.0.1] [--port <port>] [--vault <path>]");
+    print_command_pair("repl", "repl [--vault <path>]");
+    print_command_pair("list", "list [--vault <path>]");
+    print_command_pair("issues", "issues [--vault <path>]");
+    print_command_pair(
+        "add",
+        "add --url <repository-url> --folder <repository-folder> --token <github-token> [--vault <path>]",
     );
-    println!("  {}", config_path.display());
-    println!("  Default port: {}", default_port);
-    println!("Default vault:");
-    println!("  {}", vault_path.display());
-    println!("---Developed by Nicholas Caporusso (info@cprnhl.com)");
+    print_command_pair("delete", "delete --url <repository-url> [--vault <path>]");
+    print_command_pair("client", "client [help]");
+    print_command_pair("set-port", "set-port --port <port>");
+    print_key_value_block(
+        "Defaults",
+        &[
+            ("Default command", "repl"),
+            ("Shared config", &config_path.display().to_string()),
+            ("Default port", &default_port.to_string()),
+            ("Default vault", &vault_path.display().to_string()),
+        ],
+    );
+    print_signature();
     Ok(())
 }
 
 fn print_about() {
-    println!("IAGO (Issues A-GOgo) was developed by Nicholas Caporusso.");
-    println!("Send feedback, questions, comments and requests to info@cprnhl.com.");
+    print_section_header("About");
+    print_key_value_block(
+        "",
+        &[
+            ("Project", "IAGO (Issues A-GOgo)"),
+            ("Purpose", "Local issue relay and vault helper"),
+            ("Author", "Nicholas Caporusso"),
+            ("Contact", "info@cprnhl.com"),
+        ],
+    );
+    print_signature();
+}
+
+fn print_server_banner(mode: &str, host: &str, port: u16, vault_path: &Path, relay_port: u16) {
+    print_section_header(if mode == "serve" { "IAGO Server" } else { "IAGO Server REPL" });
+    print_key_value_block(
+        "Session",
+        &[
+            ("Mode", mode),
+            ("Relay URL", &format!("http://{host}:{port}")),
+            ("Relay port", &relay_port.to_string()),
+            ("Vault", &vault_path.display().to_string()),
+        ],
+    );
+    println!("  Tip: close the console window to hide the server, or type 'quit' in REPL mode.");
+}
+
+fn print_section_header(title: &str) {
+    println!("+------------------------------------------------------+");
+    println!("| {:<52} |", title);
+    println!("+------------------------------------------------------+");
+}
+
+fn print_command_pair(name: &str, value: &str) {
+    println!("  {:<14} {}", name, value);
+}
+
+fn print_detail(value: &str) {
+    println!("    {}", value);
+}
+
+fn print_key_value_block(title: &str, rows: &[(&str, &str)]) {
+    if !title.is_empty() {
+        print_section_header(title);
+    }
+
+    for (key, value) in rows {
+        println!("  {:<14} {}", key, value);
+    }
+}
+
+fn print_status(label: &str, detail: &str) {
+    println!("[{}] {}", label, detail);
+}
+
+fn print_signature() {
+    println!("  -- Nicholas Caporusso <info@cprnhl.com>");
 }

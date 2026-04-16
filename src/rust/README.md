@@ -56,9 +56,9 @@ The Rust `iago-server` keeps the process alive in both `serve` and `repl` mode u
 
 On Windows, the server hides the console when you click `X` and keeps running in the background.
 
-The REPL accepts `list`, `add`, `set-port`, and `about`.
+The REPL accepts `list`, `add`, `delete`, `set-port`, and `about`.
 It also accepts `issues` to print issue counts per registered repository without downloading the full issue list.
-It also accepts `client help` to show the client command reference.
+It also accepts `client [help]` to show the client command reference.
 
 `iago-server` reads `relay-config.json` in the shared app data folder for IAGO. Use `set-port --port <number>` to update the shared config so both the client and the server use the new port.
 
