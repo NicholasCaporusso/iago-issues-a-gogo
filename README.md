@@ -167,6 +167,7 @@ The `iago-server` binary is the local companion process.
 - `serve`: Start the listener and keep the process alive.
 - `repl`: Open the relay REPL.
 - `add`: Register a repository in the relay vault.
+- `delete`: Remove a repository from the relay vault by URL.
 - `issues`: Print issue counts for each repository in the relay vault without downloading the full issue list.
 - `set-port`: Update the shared relay config with a new server port.
 - `about`: Show project ownership and contact information.
@@ -207,6 +208,7 @@ You can override the vault location with `--vault <path>`.
 Inside the relay REPL:
 
 - `add`: Add or update a repository in the vault
+- `delete`: Remove a repository from the vault by URL
 - `list`: Show stored repository entries
 - `issues`: Print issue counts for each repository in the vault without downloading the full issue list
 - `set-port`: Update the shared relay config with a new server port

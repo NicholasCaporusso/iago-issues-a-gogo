@@ -29,6 +29,7 @@ npm install
 iago-server serve [--host 127.0.0.1] [--port <port>]
 iago-server repl
 iago-server add --url <repository-url> --folder <repository-folder> --token <github-token>
+iago-server delete --url <repository-url>
 iago-server set-port --port <port>
 ```
 
@@ -57,11 +58,16 @@ This stores:
 - the repository folder
 - the GitHub token
 
+### `delete`
+
+Remove a repository entry from the relay vault by URL.
+
 ## REPL commands
 
 Inside the relay REPL:
 
 - `add`: Add or update a repository in the relay vault.
+- `delete`: Remove a repository from the relay vault by URL.
 - `list`: Show the repositories currently stored in the vault.
 - `set-port`: Update the shared relay config with a new server port.
 
