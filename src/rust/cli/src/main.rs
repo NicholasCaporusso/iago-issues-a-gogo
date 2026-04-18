@@ -466,7 +466,7 @@ fn render_issue_collection(result: &Backlog, options: &Options) -> Result<(), St
         return Ok(());
     }
 
-    for issue in &result.issues {
+    for issue in result.issues.iter().rev() {
         let labels = if issue.labels.is_empty() {
             String::new()
         } else {

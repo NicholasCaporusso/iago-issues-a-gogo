@@ -755,7 +755,8 @@ function renderIssueCollection(result, options) {
     return;
   }
 
-  for (const issue of result.issues) {
+  for (let index = result.issues.length - 1; index >= 0; index -= 1) {
+    const issue = result.issues[index];
     const labels = issue.labels.length > 0 ? ` [${issue.labels.join(", ")}]` : "";
     console.log(`- Issue ${issue.number}: ${issue.title}${labels}`);
   }
