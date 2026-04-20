@@ -63,6 +63,13 @@ Print one issue from `.backlog/issues.json`.
 
 Create or switch to the branch for an issue.
 
+### `add repo`
+
+Register the current repository in the relay vault.
+
+This command requires:
+- `--token <token>`
+
 ### `completed`
 
 Stage files, create the issue-fix commit, and close the issue on GitHub.
@@ -85,6 +92,7 @@ Create a new issue on the remote repository. If no token is available, the CLI u
 - `--push`: Push after `completed`.
 - `--save`: Ask the relay flow to push after `completed`.
 - `--branch <name>`: Push target branch for `completed`.
+- `add repo --token <token>`: Register the current repository in the relay vault.
 - `--relay`: Send `report` or `completed` to the local `iago-server` instead of using a direct GitHub token.
 - `--relay-url <url>`: `iago-server` base URL. Defaults to the shared relay config.
 - `--port <number>`: Update the shared relay config when using `set-port`.
@@ -126,6 +134,12 @@ Create a new issue:
 
 ```bash
 iago create-issue --title "Bug report" --description "Short summary"
+```
+
+Register the current repository in the relay vault:
+
+```bash
+iago add repo --token <github-token>
 ```
 
 Use the local `iago-server` for the completion flow:

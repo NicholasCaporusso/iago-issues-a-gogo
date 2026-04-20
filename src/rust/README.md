@@ -42,6 +42,7 @@ The Rust CLI implements the local workflow:
 - `list` (syncs first)
 - `show`
 - `start-issue`
+- `add repo` (registers the current repository in the relay vault; requires `--token`)
 - `completed`
 - `report` (uses the relay automatically when no token is available)
 - `create-issue`

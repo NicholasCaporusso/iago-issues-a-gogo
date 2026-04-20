@@ -71,6 +71,13 @@ fn run() -> Result<(), String> {
             let branch_name = start_issue_branch(&repo_root, issue_number)?;
             println!("{branch_name}");
         }
+        "add" => {
+            if options.subcommand.as_deref() != Some("repo") {
+                return Err("The add command requires the repo subcommand: add repo --token <github-token>.".to_owned());
+            }
+
+            add_repo_command(&options)?;
+        }
         "completed" => {
             let repo_root = find_git_root(options.cwd.clone().unwrap_or_else(current_dir_string))?;
             let result = if options.relay {
@@ -142,6 +149,7 @@ struct Options {
     relay: bool,
     relay_url: String,
     remote: Option<String>,
+    subcommand: Option<String>,
     save: bool,
     title: Option<String>,
     token: Option<String>,
@@ -269,6 +277,7 @@ fn parse_args(argv: Vec<String>, default_relay_port: u16) -> Result<Options, Str
         relay: false,
         relay_url: relay_url_for_port(default_relay_port),
         remote: None,
+        subcommand: None,
         save: false,
         title: None,
         token: None,
@@ -280,6 +289,15 @@ fn parse_args(argv: Vec<String>, default_relay_port: u16) -> Result<Options, Str
         if !first.starts_with('-') {
             options.command = first.clone();
             index = 1;
+        }
+    }
+
+    if options.command == "add" {
+        if let Some(next) = argv.get(index) {
+            if !next.starts_with('-') {
+                options.subcommand = Some(next.clone());
+                index += 1;
+            }
         }
     }
 
@@ -375,6 +393,75 @@ fn set_port_command(options: &Options) -> Result<(), String> {
     let config_path = write_relay_port(port)?;
     println!("Relay port updated to {port} in {}", config_path.display());
     Ok(())
+}
+
+fn add_repo_command(options: &Options) -> Result<(), String> {
+    let folder = PathBuf::from(options.cwd.clone().unwrap_or_else(current_dir_string));
+    let repo_root = find_git_root(&folder)?;
+    let context = resolve_repository_context(&repo_root, "origin")?;
+    let token = options
+        .token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "The add repo command requires --token <github-token>.".to_owned())?;
+
+    run_server_add_command(&folder, &context.remote_url, token)
+}
+
+fn run_server_add_command(folder: &Path, remote_url: &str, token: &str) -> Result<(), String> {
+    let server_executable = resolve_server_executable_path()?;
+    let status = Command::new(&server_executable)
+        .arg("add")
+        .arg("--url")
+        .arg(remote_url)
+        .arg("--folder")
+        .arg(folder)
+        .arg("--token")
+        .arg(token)
+        .status()
+        .map_err(|error| format!("Failed to run {}: {error}", server_executable.display()))?;
+
+    if status.success() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "iago-server add exited with {}.",
+        status
+            .code()
+            .map(|code| format!("exit code {code}"))
+            .unwrap_or_else(|| "an unknown failure".to_owned())
+    ))
+}
+
+fn resolve_server_executable_path() -> Result<PathBuf, String> {
+    let current_exe = env::current_exe()
+        .map_err(|error| format!("Failed to determine the current executable path: {error}"))?;
+    let current_dir = current_exe
+        .parent()
+        .ok_or_else(|| "Could not determine the current executable directory.".to_owned())?;
+    let mut candidates = vec![current_dir.join(server_executable_name())];
+
+    if let Some(parent_dir) = current_dir.parent() {
+        candidates.push(parent_dir.join("server").join(server_executable_name()));
+    }
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Ok(PathBuf::from(server_executable_name()))
+}
+
+fn server_executable_name() -> String {
+    if cfg!(target_os = "windows") {
+        "iago-server.exe".to_owned()
+    } else {
+        "iago-server".to_owned()
+    }
 }
 
 fn parse_port(value: &str) -> Result<u16, String> {
@@ -1110,6 +1197,8 @@ Commands:\n\
                       Print one issue from .backlog/issues.json.\n\
   start-issue         start-issue --issue <number> [--cwd <path>]\n\
                       Create or switch to the branch for an issue.\n\
+  add                 add repo --token <token> [--cwd <path>]\n\
+                      Register the current repository in the relay vault.\n\
   completed           completed --issue <number> --files <path> [<path> ...] [--title <text>] [--description <text>] [--push] [--branch <name>]\n\
                       Stage files, commit progress for an issue, and close it.\n\
   report              report --title <text> [--description <text>] [--label bug|improvement|feature] [--cwd <path>] [--remote <name>] [--token <token>] [--relay]\n\
@@ -1135,6 +1224,8 @@ Options:\n\
   --relay            Send report or completed to the local relay server instead of using a direct GitHub token.\n\
   --relay-url <url>  Relay server base URL. Defaults to the shared relay config.\n\
   --port <number>    Update the shared relay config when using set-port.\n\
+  add repo --token <token>\n\
+                     Register the current repository in the relay vault.\n\
   --json             Print the full result as JSON.\n\
   --output <path>    Save the full result as JSON to a file.\n\
   --help, -h         Show this help message.\n\n\

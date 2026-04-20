@@ -87,7 +87,13 @@ dist\rust\cli\iago.exe completed --issue 42 --files src/app.rs --title "Fix the 
 dist\rust\cli\iago.exe create-issue --title "New bug" --description "Repro steps..." --label bug --token <github-token>
 ```
 
-### 7. Run the server
+### 7. Register the current repo in the vault
+
+```powershell
+dist\rust\cli\iago.exe add repo --token <github-token>
+```
+
+### 8. Run the server
 
 ```powershell
 dist\rust\server\iago-server.exe serve
@@ -97,7 +103,7 @@ If you launch `iago-server.exe` without arguments, it opens the REPL.
 
 Closing the console window does not stop the process. The server keeps running in the background.
 
-### 8. Build the installer
+### 9. Build the installer
 
 ```powershell
 npm run build:windows-installer
@@ -115,6 +121,7 @@ The `iago` CLI is the main working surface for repository-level issue management
 - `list`: Sync open issues, then print them from the local backlog file.
 - `show`: Print a single issue from the local backlog file.
 - `start-issue`: Create or switch to the branch for an issue.
+- `add repo`: Register the current repository in the relay vault.
 - `completed`: Stage files, commit the work, and close the issue.
 - `report`: Create a new issue on the remote repository. Uses the relay automatically when no token is available.
 - `create-issue`: Same as `report`.
@@ -136,6 +143,7 @@ The `iago` CLI is the main working surface for repository-level issue management
 - `--json`: Print the full result as JSON.
 - `--output <path>`: Save the full result as JSON to a file.
 - `--all`: Include improvement and feature issues in list output.
+- `add repo --token <token>`: Register the current repository in the relay vault.
 - `--relay`: Send `report` or `completed` through the local `iago-server`.
 - `--relay-url <url>`: `iago-server` base URL. Defaults to the shared relay config.
 - `--port <number>`: Update the shared relay config when using `set-port`.

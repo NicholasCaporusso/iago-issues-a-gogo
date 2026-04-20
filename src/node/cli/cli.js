@@ -65,6 +65,14 @@ async function main() {
         console.log(branchName);
         return;
       }
+      case "add": {
+        if (options.subcommand !== "repo") {
+          throw new Error("The add command requires the repo subcommand: add repo --token <github-token>.");
+        }
+
+        await addRepoCommand(options);
+        return;
+      }
       case "completed": {
         const repoRoot = await getRepoRoot(options);
         const result = options.relay
@@ -124,6 +132,23 @@ async function getRepoRoot(options) {
   return shared.findGitRoot(options.cwd ?? process.cwd());
 }
 
+async function addRepoCommand(options) {
+  const cwd = path.resolve(options.cwd ?? process.cwd());
+  const repoRoot = await shared.findGitRoot(cwd);
+  const { remoteUrl } = await shared.resolveRepositoryContext(repoRoot, "origin");
+  const token = options.token?.trim();
+
+  if (!token) {
+    throw new Error("The add repo command requires --token <github-token>.");
+  }
+
+  await runServerAddCommand({
+    folder: cwd,
+    remoteUrl,
+    token
+  });
+}
+
 function parseArgs(argv, defaultRelayPort) {
   const options = {
     all: false,
@@ -141,6 +166,7 @@ function parseArgs(argv, defaultRelayPort) {
     relay: false,
     relayUrl: relayUrlForPort(defaultRelayPort),
     remote: null,
+    subcommand: null,
     runner: runGitCommand,
     save: false,
     port: null,
@@ -153,6 +179,11 @@ function parseArgs(argv, defaultRelayPort) {
   if (argv[0] && !argv[0].startsWith("-")) {
     options.command = argv[0];
     index = 1;
+  }
+
+  if (options.command === "add" && argv[index] && !argv[index].startsWith("-")) {
+    options.subcommand = argv[index];
+    index += 1;
   }
 
   for (; index < argv.length; index += 1) {
@@ -963,6 +994,76 @@ async function setPortCommand(options) {
 function ensureRelayBaseUrl(value) {
   const normalized = String(value ?? relayUrlForPort(DEFAULT_RELAY_PORT)).trim();
   return normalized.endsWith("/") ? normalized : `${normalized}/`;
+}
+
+async function runServerAddCommand({ folder, remoteUrl, token }) {
+  const invocation = await resolveServerAddInvocation();
+  const child = spawn(
+    invocation.command,
+    [
+      ...invocation.args,
+      "add",
+      "--url",
+      remoteUrl,
+      "--folder",
+      folder,
+      "--token",
+      token
+    ],
+    {
+      stdio: "inherit"
+    }
+  );
+
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`iago-server add exited with ${signal ? `signal ${signal}` : `code ${code}`}.`));
+    });
+  });
+}
+
+async function resolveServerAddInvocation() {
+  const serverScriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../server/server.js");
+  const executableDir = path.dirname(path.resolve(process.argv[0]));
+  const siblingServerCandidates = [
+    path.join(executableDir, "iago-server.exe"),
+    path.join(executableDir, "iago-server"),
+    path.join(path.dirname(executableDir), "server", "iago-server.exe"),
+    path.join(path.dirname(executableDir), "server", "iago-server")
+  ];
+
+  for (const candidate of siblingServerCandidates) {
+    try {
+      await fs.access(candidate);
+      return {
+        args: [],
+        command: candidate
+      };
+    } catch {
+      // Keep looking for a runnable server location.
+    }
+  }
+
+  try {
+    await fs.access(serverScriptPath);
+    return {
+      args: [serverScriptPath],
+      command: path.basename(process.execPath).toLowerCase().includes("node")
+        ? process.execPath
+        : "node"
+    };
+  } catch {
+    return {
+      args: [],
+      command: "iago-server"
+    };
+  }
 }
 
 function buildIssueFixCommitMessage(issueNumber, description) {
@@ -1935,6 +2036,7 @@ function printHelp() {
   list                Sync open issues, then read and print issues from .backlog/issues.json.
   show                Print one issue from .backlog/issues.json.
   start-issue         Create or switch to the branch for an issue.
+  add repo            Register the current repository in the relay vault.
   completed           Stage files, commit progress for an issue, and close it.
   report              Create a new issue on the remote repository.
   create-issue        Create a new issue on the remote repository.
@@ -1957,6 +2059,8 @@ function printHelp() {
     --relay            Send report or completed to the local relay server instead of using a direct GitHub token.
     --relay-url <url>  Relay server base URL. Defaults to the shared relay config.
     --port <number>    Update the shared relay config when using set-port.
+    add repo --token <token>
+                      Register the current repository in the relay vault.
   --json             Print the full result as JSON.
   --output <path>    Save the full result as JSON to a file.
   --help, -h         Show this help message.
