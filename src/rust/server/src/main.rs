@@ -400,15 +400,20 @@ fn start_http_server(host: &str, port: u16, vault_path: &Path) -> Result<RelaySe
 }
 
 fn handle_http_connection(mut stream: TcpStream, vault_path: &Path) -> Result<(), String> {
+    stream
+        .set_nonblocking(false)
+        .map_err(|error| format!("Failed to configure connection: {error}"))?;
     let mut reader = io::BufReader::new(
         stream
             .try_clone()
             .map_err(|error| format!("Failed to clone stream: {error}"))?,
     );
     let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .map_err(|error| format!("Failed to read request line: {error}"))?;
+    match reader.read_line(&mut request_line) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+        Err(error) => return Err(format!("Failed to read request line: {error}")),
+    }
 
     if request_line.trim().is_empty() {
         return Ok(());
@@ -421,9 +426,11 @@ fn handle_http_connection(mut stream: TcpStream, vault_path: &Path) -> Result<()
 
     loop {
         let mut header_line = String::new();
-        reader
-            .read_line(&mut header_line)
-            .map_err(|error| format!("Failed to read request header: {error}"))?;
+        match reader.read_line(&mut header_line) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) => return Err(format!("Failed to read request header: {error}")),
+        }
         let trimmed = header_line.trim_end_matches(['\r', '\n']);
 
         if trimmed.is_empty() {
